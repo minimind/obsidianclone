@@ -290,19 +290,23 @@ class ObsidianClone(QMainWindow):
         menu = QMenu()
         create_dir_action = menu.addAction("Create Subdirectory")
         
-        # Add delete action if an item is selected
+        # Add rename and delete actions if an item is selected
         current_item = self.file_tree.currentItem()
+        rename_action = None
         delete_action = None
         if current_item:
             item_type = current_item.data(0, Qt.UserRole + 1)
             if item_type in ["file", "directory"]:
                 menu.addSeparator()
+                rename_action = menu.addAction("Rename")
                 delete_action = menu.addAction("Delete")
         
         action = menu.exec_(self.file_tree.mapToGlobal(position))
         
         if action == create_dir_action:
             self.create_subdirectory()
+        elif action == rename_action:
+            self.rename_item()
         elif action == delete_action:
             self.delete_item()
     
@@ -392,6 +396,74 @@ class ObsidianClone(QMainWindow):
                     self.load_files()
             except Exception as e:
                 QMessageBox.warning(self, "Error", f"Could not delete directory: {str(e)}")
+    
+    def rename_item(self):
+        """Rename the selected file or directory"""
+        current_item = self.file_tree.currentItem()
+        if not current_item:
+            return
+        
+        item_type = current_item.data(0, Qt.UserRole + 1)
+        item_path = current_item.data(0, Qt.UserRole)
+        old_name = os.path.basename(item_path)
+        
+        # Don't allow renaming .trash
+        if item_type == "trash":
+            QMessageBox.warning(self, "Cannot Rename", "The .trash directory cannot be renamed.")
+            return
+        
+        # Get new name from user
+        if item_type == "file":
+            # For files, show name without .md extension
+            display_name = old_name[:-3] if old_name.endswith('.md') else old_name
+            new_name, ok = QInputDialog.getText(self, "Rename File", 
+                                               "New name:", text=display_name)
+            if ok and new_name:
+                # Sanitize and add .md extension
+                new_name = self.sanitize_filename(new_name)
+                if not new_name.endswith('.md'):
+                    new_name += '.md'
+        else:
+            # For directories
+            new_name, ok = QInputDialog.getText(self, "Rename Directory", 
+                                               "New name:", text=old_name)
+            if ok and new_name:
+                new_name = self.sanitize_filename(new_name)
+        
+        if not (ok and new_name):
+            return
+        
+        # Check if new name is same as old
+        if new_name == old_name:
+            return
+        
+        # Construct new path
+        parent_dir = os.path.dirname(item_path)
+        new_path = os.path.join(parent_dir, new_name)
+        
+        # Check if target already exists
+        if os.path.exists(new_path):
+            QMessageBox.warning(self, "Cannot Rename", 
+                              f"A {'file' if item_type == 'file' else 'directory'} with that name already exists.")
+            return
+        
+        try:
+            # Rename the file/directory
+            os.rename(item_path, new_path)
+            
+            # Update links if it's a file
+            if item_type == "file":
+                self.update_links_after_move(item_path, new_path)
+            
+            # If this was the current file, update the path
+            if item_path == self.current_file:
+                self.current_file = new_path
+            
+            # Reload the tree
+            self.load_files()
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not rename: {str(e)}")
     
     def tree_drop_event(self, event):
         """Handle file drops in the tree"""
