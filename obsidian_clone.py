@@ -3,10 +3,11 @@ import sys
 import os
 import re
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QSplitter, 
-                             QListWidget, QTextEdit, QVBoxLayout, 
-                             QWidget, QListWidgetItem, QPushButton)
-from PyQt5.QtCore import Qt, QTimer, QUrl
-from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QColor
+                             QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
+                             QTextEdit, QVBoxLayout, QWidget, QPushButton, QMenu, 
+                             QInputDialog, QMessageBox)
+from PyQt5.QtCore import Qt, QTimer, QUrl, QMimeData
+from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QColor, QDrag
 
 
 class ClickableTextEdit(QTextEdit):
@@ -59,27 +60,39 @@ class ClickableTextEdit(QTextEdit):
     
     def handle_link_click(self, link_text):
         if self.parent_window:
-            # Sanitize the link text for filename
-            sanitized_name = self.parent_window.sanitize_filename(link_text)
-            filename = f"{sanitized_name}.md"
-            file_path = os.path.join(self.parent_window.notes_dir, filename)
+            # Check if link contains subdirectory path
+            if '/' in link_text:
+                # Handle subdirectory path
+                parts = link_text.split('/')
+                # Sanitize each part
+                sanitized_parts = [self.parent_window.sanitize_filename(part) for part in parts]
+                # Add .md to the last part
+                sanitized_parts[-1] = f"{sanitized_parts[-1]}.md"
+                file_path = os.path.join(self.parent_window.notes_dir, *sanitized_parts)
+            else:
+                # Simple filename in root
+                sanitized_name = self.parent_window.sanitize_filename(link_text)
+                filename = f"{sanitized_name}.md"
+                file_path = os.path.join(self.parent_window.notes_dir, filename)
             
             # Save current file first
             self.parent_window.save_current_file()
             
-            # If file doesn't exist, create it
+            # If file doesn't exist, create it (and directories if needed)
             if not os.path.exists(file_path):
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
                 open(file_path, 'a').close()
                 self.parent_window.load_files()
             
-            # Open the linked file
-            for i in range(self.parent_window.file_list.count()):
-                item = self.parent_window.file_list.item(i)
-                item_path = item.data(Qt.UserRole)
-                if item_path == file_path:
-                    self.parent_window.file_list.setCurrentItem(item)
-                    self.parent_window.on_file_selected(item)
+            # Open the linked file in the tree
+            iterator = QTreeWidgetItemIterator(self.parent_window.file_tree)
+            while iterator.value():
+                item = iterator.value()
+                if item.data(0, Qt.UserRole) == file_path:
+                    self.parent_window.file_tree.setCurrentItem(item)
+                    self.parent_window.on_file_selected(item, 0)
                     break
+                iterator += 1
     
     def mouseMoveEvent(self, event):
         cursor = self.cursorForPosition(event.pos())
@@ -151,6 +164,11 @@ class ObsidianClone(QMainWindow):
         if not os.path.exists(home_file):
             open(home_file, 'a').close()
             
+        # Create .trash directory
+        trash_dir = os.path.join(self.notes_dir, ".trash")
+        if not os.path.exists(trash_dir):
+            os.makedirs(trash_dir)
+            
     def init_ui(self):
         self.setWindowTitle("Obsidian Clone")
         self.setGeometry(100, 100, 1200, 800)
@@ -164,14 +182,20 @@ class ObsidianClone(QMainWindow):
         splitter = QSplitter(Qt.Horizontal)
         layout.addWidget(splitter)
         
-        # Left side - File list and button
+        # Left side - File tree and button
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.file_list = QListWidget()
-        self.file_list.itemClicked.connect(self.on_file_selected)
-        left_layout.addWidget(self.file_list)
+        self.file_tree = QTreeWidget()
+        self.file_tree.setHeaderLabel("Files")
+        self.file_tree.itemClicked.connect(self.on_file_selected)
+        self.file_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.file_tree.customContextMenuRequested.connect(self.show_context_menu)
+        self.file_tree.setDragDropMode(QTreeWidget.InternalMove)
+        self.file_tree.setDefaultDropAction(Qt.MoveAction)
+        self.file_tree.dropEvent = self.tree_drop_event
+        left_layout.addWidget(self.file_tree)
         
         # Mode toggle button
         self.mode_button = QPushButton("Read Only")
@@ -190,26 +214,317 @@ class ObsidianClone(QMainWindow):
         splitter.setSizes([360, 840])
         
     def load_files(self):
-        """Load all .md files from notes directory"""
-        self.file_list.clear()
+        """Load all .md files and directories from notes directory"""
+        self.file_tree.clear()
         
         if os.path.exists(self.notes_dir):
-            for filename in os.listdir(self.notes_dir):
-                if filename.endswith('.md'):
-                    file_path = os.path.join(self.notes_dir, filename)
-                    item = QListWidgetItem(filename)
-                    item.setData(Qt.UserRole, file_path)
-                    self.file_list.addItem(item)
+            self._load_directory(self.notes_dir, self.file_tree.invisibleRootItem())
+    
+    def _load_directory(self, dir_path, parent_item):
+        """Recursively load directory contents"""
+        try:
+            items = []
+            trash_items = []
+            
+            # First collect all items
+            for name in sorted(os.listdir(dir_path)):
+                full_path = os.path.join(dir_path, name)
+                is_dir = os.path.isdir(full_path)
+                
+                # Separate .trash for special handling
+                if name == ".trash" and dir_path == self.notes_dir:
+                    trash_items.append((name, full_path, is_dir))
+                else:
+                    items.append((name, full_path, is_dir))
+            
+            # Add directories first (except .trash)
+            for name, full_path, is_dir in items:
+                if is_dir:
+                    dir_item = QTreeWidgetItem(parent_item, [name])
+                    dir_item.setData(0, Qt.UserRole, full_path)
+                    dir_item.setData(0, Qt.UserRole + 1, "directory")
+                    # Set italic font for directories
+                    font = dir_item.font(0)
+                    font.setItalic(True)
+                    dir_item.setFont(0, font)
+                    self._load_directory(full_path, dir_item)
+            
+            # Then add files
+            for name, full_path, is_dir in items:
+                if not is_dir and name.endswith('.md'):
+                    file_item = QTreeWidgetItem(parent_item, [name])
+                    file_item.setData(0, Qt.UserRole, full_path)
+                    file_item.setData(0, Qt.UserRole + 1, "file")
+            
+            # Add .trash at the bottom with special styling
+            for name, full_path, is_dir in trash_items:
+                trash_item = QTreeWidgetItem(parent_item, [name])
+                trash_item.setData(0, Qt.UserRole, full_path)
+                trash_item.setData(0, Qt.UserRole + 1, "trash")
+                # Set lighter color
+                trash_item.setForeground(0, QColor(150, 150, 150))
+                # Set italic font for .trash directory
+                font = trash_item.font(0)
+                font.setItalic(True)
+                trash_item.setFont(0, font)
+                self._load_directory(full_path, trash_item)
+                
+        except PermissionError:
+            pass
             
     def open_default_file(self):
         """Open home.md by default"""
         home_file = os.path.join(self.notes_dir, "home.md")
-        for i in range(self.file_list.count()):
-            item = self.file_list.item(i)
-            if item.data(Qt.UserRole) == home_file:
-                self.file_list.setCurrentItem(item)
-                self.on_file_selected(item)
+        # Find and select home.md in the tree
+        iterator = QTreeWidgetItemIterator(self.file_tree)
+        while iterator.value():
+            item = iterator.value()
+            if item.data(0, Qt.UserRole) == home_file:
+                self.file_tree.setCurrentItem(item)
+                self.on_file_selected(item, 0)
                 break
+            iterator += 1
+    
+    def show_context_menu(self, position):
+        """Show context menu for file operations"""
+        menu = QMenu()
+        create_dir_action = menu.addAction("Create Subdirectory")
+        
+        # Add delete action if an item is selected
+        current_item = self.file_tree.currentItem()
+        delete_action = None
+        if current_item:
+            item_type = current_item.data(0, Qt.UserRole + 1)
+            if item_type in ["file", "directory"]:
+                menu.addSeparator()
+                delete_action = menu.addAction("Delete")
+        
+        action = menu.exec_(self.file_tree.mapToGlobal(position))
+        
+        if action == create_dir_action:
+            self.create_subdirectory()
+        elif action == delete_action:
+            self.delete_item()
+    
+    def create_subdirectory(self):
+        """Create a new subdirectory"""
+        current_item = self.file_tree.currentItem()
+        
+        # Determine parent directory
+        if current_item:
+            item_type = current_item.data(0, Qt.UserRole + 1)
+            if item_type == "directory":
+                parent_path = current_item.data(0, Qt.UserRole)
+                parent_item = current_item
+            else:
+                # If a file is selected, use its parent directory
+                parent_item = current_item.parent() or self.file_tree.invisibleRootItem()
+                if parent_item == self.file_tree.invisibleRootItem():
+                    parent_path = self.notes_dir
+                else:
+                    parent_path = parent_item.data(0, Qt.UserRole)
+        else:
+            parent_path = self.notes_dir
+            parent_item = self.file_tree.invisibleRootItem()
+        
+        # Get directory name from user
+        name, ok = QInputDialog.getText(self, "Create Subdirectory", "Directory name:")
+        if ok and name:
+            # Sanitize directory name
+            sanitized_name = self.sanitize_filename(name)
+            new_dir_path = os.path.join(parent_path, sanitized_name)
+            
+            try:
+                os.makedirs(new_dir_path, exist_ok=True)
+                # Reload the tree
+                self.load_files()
+                # Expand the parent item
+                if parent_item != self.file_tree.invisibleRootItem():
+                    parent_item.setExpanded(True)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not create directory: {str(e)}")
+    
+    def delete_item(self):
+        """Delete the selected file or directory"""
+        current_item = self.file_tree.currentItem()
+        if not current_item:
+            return
+        
+        item_type = current_item.data(0, Qt.UserRole + 1)
+        item_path = current_item.data(0, Qt.UserRole)
+        item_name = os.path.basename(item_path)
+        
+        if item_type == "trash":
+            QMessageBox.warning(self, "Cannot Delete", "The .trash directory cannot be deleted.")
+            return
+        
+        if item_type == "file":
+            # Move file to trash
+            trash_dir = os.path.join(self.notes_dir, ".trash")
+            
+            # Generate unique filename if file already exists in trash
+            trash_path = os.path.join(trash_dir, item_name)
+            if os.path.exists(trash_path):
+                base, ext = os.path.splitext(item_name)
+                counter = 1
+                while os.path.exists(trash_path):
+                    trash_path = os.path.join(trash_dir, f"{base}_{counter}{ext}")
+                    counter += 1
+            
+            try:
+                os.rename(item_path, trash_path)
+                # If this was the current file, clear the editor
+                if item_path == self.current_file:
+                    self.current_file = None
+                    self.editor.clear()
+                    self.original_content = ""
+                self.load_files()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not move file to trash: {str(e)}")
+                
+        elif item_type == "directory":
+            # Check if directory is empty
+            try:
+                if os.listdir(item_path):
+                    QMessageBox.warning(self, "Cannot Delete", "Directory is not empty.")
+                else:
+                    os.rmdir(item_path)
+                    self.load_files()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Could not delete directory: {str(e)}")
+    
+    def tree_drop_event(self, event):
+        """Handle file drops in the tree"""
+        # Get the item being dragged
+        dragged_item = self.file_tree.currentItem()
+        if not dragged_item or dragged_item.data(0, Qt.UserRole + 1) != "file":
+            event.ignore()
+            return
+        
+        # Get drop target
+        target_item = self.file_tree.itemAt(event.pos())
+        
+        # Determine target directory
+        if target_item:
+            item_type = target_item.data(0, Qt.UserRole + 1)
+            
+            # Don't allow drops on .trash
+            if item_type == "trash":
+                event.ignore()
+                return
+                
+            if item_type == "directory":
+                target_dir = target_item.data(0, Qt.UserRole)
+            else:
+                # Dropped on a file, use its parent directory
+                parent = target_item.parent()
+                if parent:
+                    target_dir = parent.data(0, Qt.UserRole)
+                else:
+                    target_dir = self.notes_dir
+        else:
+            target_dir = self.notes_dir
+        
+        # Get source file info
+        source_path = dragged_item.data(0, Qt.UserRole)
+        filename = os.path.basename(source_path)
+        dest_path = os.path.join(target_dir, filename)
+        
+        # Don't move to same location
+        if source_path == dest_path:
+            event.ignore()
+            return
+        
+        try:
+            # Move the file
+            os.rename(source_path, dest_path)
+            
+            # Update links in all files
+            self.update_links_after_move(source_path, dest_path)
+            
+            # Reload the tree
+            self.load_files()
+            
+            # If the moved file was open, update current file path
+            if self.current_file == source_path:
+                self.current_file = dest_path
+            
+            event.accept()
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Could not move file: {str(e)}")
+            event.ignore()
+    
+    def update_links_after_move(self, old_path, new_path):
+        """Update all links after a file has been moved"""
+        # Walk through all .md files and update links
+        for root, dirs, files in os.walk(self.notes_dir):
+            for filename in files:
+                if filename.endswith('.md'):
+                    file_path = os.path.join(root, filename)
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            content = f.read()
+                        
+                        updated_content = content
+                        
+                        # Find all [[...]] links
+                        link_pattern = r'\[\[([^\]]+)\]\]'
+                        
+                        for match in re.finditer(link_pattern, content):
+                            link_text = match.group(1)  # The text inside [[ ]]
+                            
+                            # Convert the link text to a file path
+                            if '/' in link_text:
+                                # Handle subdirectory path
+                                parts = link_text.split('/')
+                                # Sanitize each part
+                                sanitized_parts = [self.sanitize_filename(part) for part in parts]
+                                # Add .md to the last part
+                                sanitized_parts[-1] = f"{sanitized_parts[-1]}.md"
+                                link_file_path = os.path.join(self.notes_dir, *sanitized_parts)
+                            else:
+                                # Simple filename
+                                sanitized_name = self.sanitize_filename(link_text)
+                                link_file_path = os.path.join(self.notes_dir, f"{sanitized_name}.md")
+                            
+                            # Normalize paths for comparison
+                            link_file_path = os.path.normpath(link_file_path)
+                            old_path_norm = os.path.normpath(old_path)
+                            
+                            # If this link pointed to the moved file, update it
+                            if link_file_path == old_path_norm:
+                                # Get the new relative path
+                                new_rel = os.path.relpath(new_path, self.notes_dir).replace(os.sep, '/')
+                                if new_rel.endswith('.md'):
+                                    new_rel = new_rel[:-3]
+                                
+                                # For the new link text, we need to "unsanitize" it
+                                # by replacing underscores back to spaces in the filename part
+                                new_parts = new_rel.split('/')
+                                # Only unsanitize the last part (filename)
+                                new_parts[-1] = new_parts[-1].replace('_', ' ')
+                                new_link_text = '/'.join(new_parts)
+                                
+                                # Replace the old link with the new one
+                                old_link_full = match.group(0)
+                                new_link = f'[[{new_link_text}]]'
+                                updated_content = updated_content.replace(old_link_full, new_link)
+                        
+                        # Write back if content changed
+                        if updated_content != content:
+                            with open(file_path, 'w', encoding='utf-8') as f:
+                                f.write(updated_content)
+                            
+                            # If this is the currently open file, reload it
+                            if file_path == self.current_file:
+                                self.editor.setPlainText(updated_content)
+                                self.original_content = updated_content
+                                if self.is_read_only:
+                                    self.format_for_read_only()
+                                else:
+                                    self.format_links()
+                    except Exception as e:
+                        print(f"Error updating links in {file_path}: {e}")
     
     def toggle_mode(self):
         """Toggle between edit and read-only mode"""
@@ -230,14 +545,22 @@ class ObsidianClone(QMainWindow):
             # Restore edit mode formatting
             self.format_links()
             
-    def on_file_selected(self, item):
-        """Handle file selection from the list"""
+    def on_file_selected(self, item, column):
+        """Handle file selection from the tree"""
+        # Only process files, not directories
+        if item.data(0, Qt.UserRole + 1) != "file":
+            return
+            
+        # Don't allow editing files in .trash
+        file_path = item.data(0, Qt.UserRole)
+        if ".trash" in file_path:
+            return
+            
         # Save current file before switching
         if self.current_file:
             self.save_current_file()
             
         # Load selected file
-        file_path = item.data(Qt.UserRole)
         self.current_file = file_path
         
         try:
@@ -260,23 +583,6 @@ class ObsidianClone(QMainWindow):
             
         # Update stored original content in edit mode
         self.original_content = self.editor.toPlainText()
-        
-        text = self.editor.toPlainText()
-        
-        # Find all [[page]] patterns
-        pattern = r'\[\[([^\]]+)\]\]'
-        matches = re.findall(pattern, text)
-        
-        for match in matches:
-            # Create file if it doesn't exist
-            sanitized_name = self.sanitize_filename(match)
-            filename = f"{sanitized_name}.md"
-            file_path = os.path.join(self.notes_dir, filename)
-            
-            if not os.path.exists(file_path):
-                open(file_path, 'a').close()
-                # Reload file list to show new file
-                self.load_files()
         
         # Apply link formatting
         self.format_links()
