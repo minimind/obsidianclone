@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 import sys
+
+# Check Python version compatibility
+if sys.version_info < (3, 9):
+    print(f"Error: Python 3.9 or higher is required. You are using Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    sys.exit(1)
+
 import os
 import re
 from datetime import datetime

@@ -13,6 +13,11 @@ A simple Obsidian-like note-taking application built with Python and PyQt5.
 - Daily journal entries with automatic date-based organization
 - Configurable data directory location via environment variable
 
+## Requirements
+
+- Python 3.9 or higher (tested with 3.9 and 3.12)
+- PyQt5
+
 ## Installation
 
 1. Install dependencies:
