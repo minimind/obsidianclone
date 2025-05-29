@@ -301,6 +301,14 @@ class ObsidianClone(QMainWindow):
                 break
             iterator += 1
     
+    def get_ordinal_suffix(self, day):
+        """Get ordinal suffix for a day number (1st, 2nd, 3rd, 4th, etc.)"""
+        if 10 <= day % 100 <= 20:
+            suffix = 'th'
+        else:
+            suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+        return suffix
+    
     def open_today_journal(self):
         """Open today's journal entry, creating it if necessary"""
         # Get current date
@@ -322,8 +330,15 @@ class ObsidianClone(QMainWindow):
         # Create file if it doesn't exist
         if not os.path.exists(journal_file):
             with open(journal_file, 'w', encoding='utf-8') as f:
-                # Add a default header with the date
-                f.write(f"# {today.strftime('%B %d, %Y')}\n\n")
+                # Format: "Thursday 29th May 2025"
+                day_of_week = today.strftime("%A")
+                day_num = today.day
+                month_name = today.strftime("%B")
+                year_str = today.strftime("%Y")
+                suffix = self.get_ordinal_suffix(day_num)
+                
+                date_header = f"{day_of_week} {day_num}{suffix} {month_name} {year_str}"
+                f.write(f"# {date_header}\n\n")
         
         # Reload files to show new directories/files in tree
         self.load_files()

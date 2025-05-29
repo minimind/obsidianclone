@@ -1,5 +1,5 @@
 # Ignore the notes directory
-/obsidianclone/
+/obclonedata/
 
 # Python
 __pycache__/
