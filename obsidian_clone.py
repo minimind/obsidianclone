@@ -220,7 +220,7 @@ class ObsidianClone(QMainWindow):
         
         # Right side - Markdown editor
         self.editor = ClickableTextEdit(self)
-        self.editor.setFont(QFont("Consolas", 11))
+        self.editor.setFont(QFont("Consolas", 14))
         self.editor.textChanged.connect(self.on_text_changed)
         self.editor.setReadOnly(True)  # Start in read-only mode
         splitter.addWidget(self.editor)
