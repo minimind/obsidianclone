@@ -2,6 +2,7 @@
 import sys
 import os
 import re
+from datetime import datetime
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QSplitter, 
                              QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
                              QTextEdit, QVBoxLayout, QWidget, QPushButton, QMenu, 
@@ -202,6 +203,11 @@ class ObsidianClone(QMainWindow):
         self.mode_button.clicked.connect(self.toggle_mode)
         left_layout.addWidget(self.mode_button)
         
+        # Today button
+        self.today_button = QPushButton("Today")
+        self.today_button.clicked.connect(self.open_today_journal)
+        left_layout.addWidget(self.today_button)
+        
         splitter.addWidget(left_widget)
         
         # Right side - Markdown editor
@@ -225,20 +231,20 @@ class ObsidianClone(QMainWindow):
         """Recursively load directory contents"""
         try:
             items = []
-            trash_items = []
+            special_items = []
             
             # First collect all items
             for name in sorted(os.listdir(dir_path)):
                 full_path = os.path.join(dir_path, name)
                 is_dir = os.path.isdir(full_path)
                 
-                # Separate .trash for special handling
-                if name == ".trash" and dir_path == self.notes_dir:
-                    trash_items.append((name, full_path, is_dir))
+                # Separate .trash and .journal for special handling
+                if (name in [".trash", ".journal"]) and dir_path == self.notes_dir:
+                    special_items.append((name, full_path, is_dir))
                 else:
                     items.append((name, full_path, is_dir))
             
-            # Add directories first (except .trash)
+            # Add directories first (except special ones)
             for name, full_path, is_dir in items:
                 if is_dir:
                     dir_item = QTreeWidgetItem(parent_item, [name])
@@ -257,18 +263,25 @@ class ObsidianClone(QMainWindow):
                     file_item.setData(0, Qt.UserRole, full_path)
                     file_item.setData(0, Qt.UserRole + 1, "file")
             
-            # Add .trash at the bottom with special styling
-            for name, full_path, is_dir in trash_items:
-                trash_item = QTreeWidgetItem(parent_item, [name])
-                trash_item.setData(0, Qt.UserRole, full_path)
-                trash_item.setData(0, Qt.UserRole + 1, "trash")
-                # Set lighter color
-                trash_item.setForeground(0, QColor(150, 150, 150))
-                # Set italic font for .trash directory
-                font = trash_item.font(0)
+            # Add special directories at the bottom with special styling
+            for name, full_path, is_dir in special_items:
+                special_item = QTreeWidgetItem(parent_item, [name])
+                special_item.setData(0, Qt.UserRole, full_path)
+                
+                if name == ".trash":
+                    special_item.setData(0, Qt.UserRole + 1, "trash")
+                    # Set lighter color for trash
+                    special_item.setForeground(0, QColor(150, 150, 150))
+                elif name == ".journal":
+                    special_item.setData(0, Qt.UserRole + 1, "journal")
+                    # Set blue color for journal
+                    special_item.setForeground(0, QColor(0, 100, 200))
+                
+                # Set italic font for special directories
+                font = special_item.font(0)
                 font.setItalic(True)
-                trash_item.setFont(0, font)
-                self._load_directory(full_path, trash_item)
+                special_item.setFont(0, font)
+                self._load_directory(full_path, special_item)
                 
         except PermissionError:
             pass
@@ -281,6 +294,49 @@ class ObsidianClone(QMainWindow):
         while iterator.value():
             item = iterator.value()
             if item.data(0, Qt.UserRole) == home_file:
+                self.file_tree.setCurrentItem(item)
+                self.on_file_selected(item, 0)
+                break
+            iterator += 1
+    
+    def open_today_journal(self):
+        """Open today's journal entry, creating it if necessary"""
+        # Get current date
+        today = datetime.now()
+        year = today.strftime("%Y")
+        month = today.strftime("%m")
+        day = today.strftime("%d")
+        
+        # Create journal path
+        journal_dir = os.path.join(self.notes_dir, ".journal", year, month)
+        journal_file = os.path.join(journal_dir, f"{day}.md")
+        
+        # Save current file first
+        self.save_current_file()
+        
+        # Create directories if they don't exist
+        os.makedirs(journal_dir, exist_ok=True)
+        
+        # Create file if it doesn't exist
+        if not os.path.exists(journal_file):
+            with open(journal_file, 'w', encoding='utf-8') as f:
+                # Add a default header with the date
+                f.write(f"# {today.strftime('%B %d, %Y')}\n\n")
+        
+        # Reload files to show new directories/files in tree
+        self.load_files()
+        
+        # Find and select the journal file in the tree
+        iterator = QTreeWidgetItemIterator(self.file_tree)
+        while iterator.value():
+            item = iterator.value()
+            if item.data(0, Qt.UserRole) == journal_file:
+                # Expand parent nodes to make the file visible
+                parent = item.parent()
+                while parent:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+                
                 self.file_tree.setCurrentItem(item)
                 self.on_file_selected(item, 0)
                 break
@@ -359,8 +415,8 @@ class ObsidianClone(QMainWindow):
         item_path = current_item.data(0, Qt.UserRole)
         item_name = os.path.basename(item_path)
         
-        if item_type == "trash":
-            QMessageBox.warning(self, "Cannot Delete", "The .trash directory cannot be deleted.")
+        if item_type in ["trash", "journal"]:
+            QMessageBox.warning(self, "Cannot Delete", f"The {item_name} directory cannot be deleted.")
             return
         
         if item_type == "file":
@@ -408,9 +464,9 @@ class ObsidianClone(QMainWindow):
         item_path = current_item.data(0, Qt.UserRole)
         old_name = os.path.basename(item_path)
         
-        # Don't allow renaming .trash
-        if item_type == "trash":
-            QMessageBox.warning(self, "Cannot Rename", "The .trash directory cannot be renamed.")
+        # Don't allow renaming special directories
+        if item_type in ["trash", "journal"]:
+            QMessageBox.warning(self, "Cannot Rename", f"The {old_name} directory cannot be renamed.")
             return
         
         # Get new name from user
@@ -481,8 +537,8 @@ class ObsidianClone(QMainWindow):
         if target_item:
             item_type = target_item.data(0, Qt.UserRole + 1)
             
-            # Don't allow drops on .trash
-            if item_type == "trash":
+            # Don't allow drops on special directories
+            if item_type in ["trash", "journal"]:
                 event.ignore()
                 return
                 
