@@ -138,7 +138,7 @@ class ClickableTextEdit(QTextEdit):
 class ObsidianClone(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.notes_dir = os.path.join(os.getcwd(), "obsidianclone")
+        self.notes_dir = os.path.join(os.getcwd(), "obclonedata")
         self.current_file = None
         self.original_content = ""  # Store original content for mode switching
         self.is_read_only = True  # Start in read-only mode

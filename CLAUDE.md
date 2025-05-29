@@ -25,7 +25,7 @@ python obsidian_clone.py
 The application consists of a single main file (`obsidian_clone.py`) that implements:
 
 - **Main Window**: QMainWindow-based application with split-pane layout
-- **File List Widget**: Left sidebar showing all `.md` files in the current directory
+- **File List Widget**: Left sidebar showing all `.md` files in the obclonedata directory
 - **Markdown Editor**: Right-side QTextEdit for editing markdown content
 - **Auto-save**: Timer-based auto-save every 5 seconds
 - **Wiki-style Linking**: Pattern matching for `[[page]]` syntax that auto-creates new files
