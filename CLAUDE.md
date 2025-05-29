@@ -20,6 +20,20 @@ python obsidian_clone.py
 ./obsidian_clone.py
 ```
 
+### Data Directory Location
+By default, the application creates an `obclonedata` subdirectory in the current working directory. You can override this location using the `OBCLONEDATA` environment variable:
+
+```bash
+# Use a specific directory for data storage
+export OBCLONEDATA=/home/user/Documents
+python obsidian_clone.py
+
+# Or set it inline
+OBCLONEDATA=/path/to/data python obsidian_clone.py
+```
+
+When `OBCLONEDATA` is set, the application will create/use `obclonedata` as a subdirectory within the specified path.
+
 ## Architecture
 
 The application consists of a single main file (`obsidian_clone.py`) that implements:
