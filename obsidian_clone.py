@@ -140,7 +140,7 @@ class ObsidianClone(QMainWindow):
         self.notes_dir = os.path.join(os.getcwd(), "obsidianclone")
         self.current_file = None
         self.original_content = ""  # Store original content for mode switching
-        self.is_read_only = False  # Start in edit mode
+        self.is_read_only = True  # Start in read-only mode
         self.auto_save_timer = QTimer()
         self.auto_save_timer.timeout.connect(self.auto_save)
         self.auto_save_timer.start(5000)  # 5 seconds
@@ -198,7 +198,7 @@ class ObsidianClone(QMainWindow):
         left_layout.addWidget(self.file_tree)
         
         # Mode toggle button
-        self.mode_button = QPushButton("Read Only")
+        self.mode_button = QPushButton("Edit")
         self.mode_button.clicked.connect(self.toggle_mode)
         left_layout.addWidget(self.mode_button)
         
@@ -208,6 +208,7 @@ class ObsidianClone(QMainWindow):
         self.editor = ClickableTextEdit(self)
         self.editor.setFont(QFont("Consolas", 11))
         self.editor.textChanged.connect(self.on_text_changed)
+        self.editor.setReadOnly(True)  # Start in read-only mode
         splitter.addWidget(self.editor)
         
         # Set splitter sizes (30% for file list, 70% for editor)
