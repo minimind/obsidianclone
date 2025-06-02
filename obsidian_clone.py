@@ -8,6 +8,7 @@ if sys.version_info < (3, 9):
 
 import os
 import re
+import subprocess
 from datetime import datetime
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QSplitter, 
                              QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
@@ -160,13 +161,43 @@ class ObsidianClone(QMainWindow):
         
         # Mac-specific: Handle dock icon clicks
         if sys.platform == 'darwin':
-            QApplication.instance().applicationStateChanged.connect(self.on_application_state_changed)
+            app = QApplication.instance()
+            app.applicationStateChanged.connect(self.on_application_state_changed)
+            # Also connect to focusChanged signal as backup
+            app.focusChanged.connect(self.on_focus_changed)
     
     def on_application_state_changed(self, state):
         """Handle application state changes on macOS"""
         if state == Qt.ApplicationActive:
+            # More forceful window activation for macOS
+            self.show()
             self.raise_()
             self.activateWindow()
+            self.setWindowState(self.windowState() & ~Qt.WindowMinimized | Qt.WindowActive)
+            
+            # Use macOS-specific NSApp to force activation
+            try:
+                import objc
+                NSApp = objc.objc_getClass('NSApplication').sharedApplication()
+                NSApp.activateIgnoringOtherApps_(True)
+            except ImportError:
+                # If PyObjC is not available, try alternative approach
+                import subprocess
+                # Use AppleScript to activate the application
+                script = '''
+                tell application "System Events"
+                    set frontmost of the first process whose unix id is {} to true
+                end tell
+                '''.format(os.getpid())
+                subprocess.run(['osascript', '-e', script], capture_output=True)
+    
+    def on_focus_changed(self, old_widget, new_widget):
+        """Additional handler for focus changes on macOS"""
+        if sys.platform == 'darwin' and new_widget is not None:
+            # If any widget in our window gets focus, ensure window is raised
+            if new_widget.window() == self:
+                self.raise_()
+                self.activateWindow()
     
     def sanitize_filename(self, name):
         """Convert spaces and newlines to underscores in filenames"""
