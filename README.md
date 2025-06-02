@@ -55,3 +55,39 @@ python obsidian_clone.py
 # Or set it inline
 OBCLONEDATA=/path/to/notes python obsidian_clone.py
 ```
+
+## Building macOS App (for Dock)
+
+To create a proper macOS application that can be added to the Dock and receives all events correctly:
+
+1. Install py2app:
+```bash
+pip install py2app
+```
+
+2. Build the app bundle:
+```bash
+make app
+# or
+python setup.py py2app
+```
+
+3. The app will be created in `dist/Obsidian Clone.app`
+
+4. To install to your Applications folder:
+   - Drag `dist/Obsidian Clone.app` to your Applications folder
+   - Or run: `make install` (requires admin password)
+
+5. To add to Dock:
+   - Open Applications folder
+   - Drag "Obsidian Clone" to your Dock
+   - Now clicking the Dock icon will launch the app directly and all events will work properly
+
+### Alternative: Command Line Alias
+
+If you prefer not to build an app bundle, you can create an alias:
+
+```bash
+# Add to your ~/.zshrc or ~/.bash_profile
+alias obsidian-clone='python /path/to/obsidian_clone.py'
+```

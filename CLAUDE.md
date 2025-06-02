@@ -20,6 +20,20 @@ python obsidian_clone.py
 ./obsidian_clone.py
 ```
 
+### Build macOS App Bundle
+```bash
+# Install py2app
+pip install py2app
+
+# Build the app
+make app
+# or
+python setup.py py2app
+
+# Install to Applications
+make install
+```
+
 ### Data Directory Location
 By default, the application creates an `obclonedata` subdirectory in the current working directory. You can override this location using the `OBCLONEDATA` environment variable:
 
