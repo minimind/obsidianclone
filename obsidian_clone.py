@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QSplitter,
                              QTreeWidget, QTreeWidgetItem, QTreeWidgetItemIterator,
                              QTextEdit, QVBoxLayout, QWidget, QPushButton, QMenu, 
                              QInputDialog, QMessageBox)
-from PyQt5.QtCore import Qt, QTimer, QUrl, QMimeData
+from PyQt5.QtCore import Qt, QTimer, QUrl, QMimeData, QEvent
 from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QColor, QDrag
 
 
@@ -161,7 +161,7 @@ class ObsidianClone(QMainWindow):
     
     def event(self, event):
         """Override event handler to catch macOS dock icon clicks"""
-        if sys.platform == 'darwin' and event.type() == 36:  # ApplicationActivate event
+        if sys.platform == 'darwin' and event.type() == QEvent.ApplicationActivate:
             # Force window to front
             self.show()
             self.raise_()
