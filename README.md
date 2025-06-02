@@ -83,6 +83,28 @@ python setup.py py2app
    - Drag "Obsidian Clone" to your Dock
    - Now clicking the Dock icon will launch the app directly and all events will work properly
 
+### Setting Custom Data Directory for macOS App
+
+There are three ways to set a custom `OBCLONEDATA` directory for the Dock app:
+
+#### Method 1: Default Location (Built into App)
+The app is pre-configured to use `~/Documents/ObsidianClone` as the default location. Just build and install the app normally.
+
+#### Method 2: Create Custom Launcher
+Create a custom app with a specific data directory:
+```bash
+./create_custom_launcher.sh /path/to/your/notes
+# Example: ./create_custom_launcher.sh ~/Dropbox/Notes
+```
+This creates a new app that will always use your specified directory.
+
+#### Method 3: Edit After Installation
+Edit the installed app's configuration:
+```bash
+# After installing to /Applications
+/usr/libexec/PlistBuddy -c "Set :LSEnvironment:OBCLONEDATA '/your/custom/path'" "/Applications/Obsidian Clone.app/Contents/Info.plist"
+```
+
 ### Alternative: Command Line Alias
 
 If you prefer not to build an app bundle, you can create an alias:

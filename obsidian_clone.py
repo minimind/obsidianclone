@@ -147,6 +147,8 @@ class ObsidianClone(QMainWindow):
         super().__init__()
         # Use OBCLONEDATA environment variable if set, otherwise use current directory
         base_dir = os.environ.get('OBCLONEDATA', os.getcwd())
+        # Expand ~ to user home directory
+        base_dir = os.path.expanduser(base_dir)
         self.notes_dir = os.path.join(base_dir, "obclonedata")
         self.current_file = None
         self.original_content = ""  # Store original content for mode switching

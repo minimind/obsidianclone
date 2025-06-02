@@ -25,6 +25,9 @@ OPTIONS = {
         'NSHumanReadableCopyright': u"Copyright © 2025",
         'NSRequiresAquaSystemAppearance': False,
         'LSUIElement': False,
+        'LSEnvironment': {
+            'OBCLONEDATA': '~/Documents/ObsidianClone'
+        }
     },
     'packages': ['PyQt5'],
     'includes': ['PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets'],
