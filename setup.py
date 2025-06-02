@@ -2,6 +2,14 @@
 Setup.py for building macOS app bundle using py2app
 """
 from setuptools import setup
+import shutil
+import os
+
+# Clean up any previous builds
+if os.path.exists('build'):
+    shutil.rmtree('build')
+if os.path.exists('dist'):
+    shutil.rmtree('dist')
 
 APP = ['obsidian_clone.py']
 DATA_FILES = []
@@ -20,7 +28,10 @@ OPTIONS = {
     },
     'packages': ['PyQt5'],
     'includes': ['PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets'],
-    'excludes': ['matplotlib', 'numpy', 'scipy'],
+    'excludes': ['matplotlib', 'numpy', 'scipy', 'PIL', 'tkinter', 'test'],
+    'site_packages': False,
+    'strip': True,
+    'semi_standalone': False,
 }
 
 setup(
