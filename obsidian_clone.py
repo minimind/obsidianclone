@@ -267,7 +267,8 @@ class ObsidianClone(QMainWindow):
             # Then add files
             for name, full_path, is_dir in items:
                 if not is_dir and name.endswith('.md'):
-                    file_item = QTreeWidgetItem(parent_item, [name])
+                    display_name = name[:-3]  # Remove .md extension
+                    file_item = QTreeWidgetItem(parent_item, [display_name])
                     file_item.setData(0, Qt.UserRole, full_path)
                     file_item.setData(0, Qt.UserRole + 1, "file")
             
