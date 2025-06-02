@@ -157,6 +157,16 @@ class ObsidianClone(QMainWindow):
         self.init_ui()
         self.load_files()
         self.open_default_file()
+        
+        # Mac-specific: Handle dock icon clicks
+        if sys.platform == 'darwin':
+            QApplication.instance().applicationStateChanged.connect(self.on_application_state_changed)
+    
+    def on_application_state_changed(self, state):
+        """Handle application state changes on macOS"""
+        if state == Qt.ApplicationActive:
+            self.raise_()
+            self.activateWindow()
     
     def sanitize_filename(self, name):
         """Convert spaces and newlines to underscores in filenames"""
