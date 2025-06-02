@@ -801,10 +801,13 @@ class ObsidianClone(QMainWindow):
         
         last_end = 0
         
+        # Create default format for regular text
+        default_format = QTextCharFormat()
+        
         for match in re.finditer(pattern, text):
-            # Add text before the match
+            # Add text before the match with default format
             if match.start() > last_end:
-                new_cursor.insertText(text[last_end:match.start()])
+                new_cursor.insertText(text[last_end:match.start()], default_format)
             
             # Add the link text without brackets
             link_text = match.group(1)
@@ -815,9 +818,9 @@ class ObsidianClone(QMainWindow):
             
             last_end = match.end()
         
-        # Add remaining text
+        # Add remaining text with default format
         if last_end < len(text):
-            new_cursor.insertText(text[last_end:])
+            new_cursor.insertText(text[last_end:], default_format)
         
         cursor.endEditBlock()
         
