@@ -26,6 +26,13 @@ class ClickableTextEdit(QTextEdit):
         self.viewport().setCursor(Qt.IBeamCursor)
         self.anchor_at_cursor = None
         
+        # Undo/Redo stack
+        self.undo_stack = []
+        self.redo_stack = []
+        self.max_undo_items = 100
+        self.last_saved_state = ""
+        self.is_undoing = False
+        
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             cursor = self.cursorForPosition(event.pos())
@@ -140,6 +147,131 @@ class ClickableTextEdit(QTextEdit):
             self.viewport().setCursor(Qt.IBeamCursor)
             
         super().mouseMoveEvent(event)
+    
+    def save_undo_state(self):
+        """Save current state to undo stack"""
+        if self.is_undoing:
+            return
+            
+        current_state = {
+            'text': self.toPlainText(),
+            'cursor_position': self.textCursor().position()
+        }
+        
+        # Don't save if text hasn't changed
+        if self.undo_stack and self.undo_stack[-1]['text'] == current_state['text']:
+            return
+            
+        self.undo_stack.append(current_state)
+        
+        # Limit undo stack size
+        if len(self.undo_stack) > self.max_undo_items:
+            self.undo_stack.pop(0)
+            
+        # Clear redo stack when new edit is made
+        self.redo_stack.clear()
+    
+    def undo(self):
+        """Undo last edit"""
+        if len(self.undo_stack) <= 1:
+            return  # Nothing to undo
+            
+        # Save current state to redo stack
+        current_state = self.undo_stack.pop()
+        self.redo_stack.append(current_state)
+        
+        # Get the previous state
+        previous_state = self.undo_stack[-1]
+            
+        # Apply the undo
+        self.is_undoing = True
+        self.setPlainText(previous_state['text'])
+        cursor = self.textCursor()
+        # Ensure cursor position is within bounds
+        max_position = len(previous_state['text'])
+        cursor_pos = min(previous_state['cursor_position'], max_position)
+        cursor.setPosition(cursor_pos)
+        self.setTextCursor(cursor)
+        self.is_undoing = False
+        
+        # Trigger formatting update
+        if self.parent_window and hasattr(self.parent_window, 'format_links'):
+            if self.parent_window.is_read_only:
+                self.parent_window.format_for_read_only()
+            else:
+                self.parent_window.format_links()
+    
+    def redo(self):
+        """Redo last undone edit"""
+        if not self.redo_stack:
+            return
+            
+        # Pop from redo stack and push to undo stack
+        redo_state = self.redo_stack.pop()
+        self.undo_stack.append(redo_state)
+        
+        # Apply the redo
+        self.is_undoing = True
+        self.setPlainText(redo_state['text'])
+        cursor = self.textCursor()
+        # Ensure cursor position is within bounds
+        max_position = len(redo_state['text'])
+        cursor_pos = min(redo_state['cursor_position'], max_position)
+        cursor.setPosition(cursor_pos)
+        self.setTextCursor(cursor)
+        self.is_undoing = False
+        
+        # Trigger formatting update
+        if self.parent_window and hasattr(self.parent_window, 'format_links'):
+            if self.parent_window.is_read_only:
+                self.parent_window.format_for_read_only()
+            else:
+                self.parent_window.format_links()
+    
+    def keyPressEvent(self, event):
+        """Handle key press events for undo/redo"""
+        # Check for Ctrl+Z (undo)
+        if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_Z:
+            # Only allow undo in edit mode
+            if self.parent_window and not self.parent_window.is_read_only:
+                self.undo()
+            event.accept()
+            return
+            
+        # Check for Ctrl+Y or Ctrl+Shift+Z (redo)
+        if ((event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_Y) or
+            (event.modifiers() == (Qt.ControlModifier | Qt.ShiftModifier) and event.key() == Qt.Key_Z)):
+            # Only allow redo in edit mode
+            if self.parent_window and not self.parent_window.is_read_only:
+                self.redo()
+            event.accept()
+            return
+            
+        # Save state before the edit
+        if not self.is_undoing and event.key() != Qt.Key_Control:
+            # For certain keys, save state immediately
+            if event.key() in [Qt.Key_Return, Qt.Key_Enter, Qt.Key_Tab, Qt.Key_Delete, Qt.Key_Backspace]:
+                self.save_undo_state()
+            elif event.text() and event.text().isprintable():
+                # For regular typing, we'll save after text changes
+                pass
+                
+        super().keyPressEvent(event)
+    
+    def clear_undo_history(self):
+        """Clear undo and redo stacks"""
+        self.undo_stack.clear()
+        self.redo_stack.clear()
+        self.last_saved_state = self.toPlainText()
+    
+    def setPlainText(self, text):
+        """Override setPlainText to handle undo state"""
+        super().setPlainText(text)
+        # Don't save undo state if we're in the middle of undoing/redoing
+        if not self.is_undoing and self.parent_window and hasattr(self.parent_window, 'is_read_only') and not self.parent_window.is_read_only:
+            # Save initial state when setting new text
+            if not self.undo_stack or (self.undo_stack and self.undo_stack[-1]['text'] != text):
+                self.save_undo_state()
 
 
 class ObsidianClone(QMainWindow):
@@ -733,14 +865,18 @@ class ObsidianClone(QMainWindow):
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 self.original_content = content  # Store original content
+                # Clear undo history before setting new content
+                self.editor.clear_undo_history()
                 self.editor.setPlainText(content)
+                
                 if self.is_read_only:
                     self.format_for_read_only()
                 else:
                     self.format_links()
         except FileNotFoundError:
-            self.editor.clear()
             self.original_content = ""
+            self.editor.clear_undo_history()
+            self.editor.clear()
             
     def on_text_changed(self):
         """Handle text changes in the editor"""
@@ -749,6 +885,10 @@ class ObsidianClone(QMainWindow):
             
         # Update stored original content in edit mode
         self.original_content = self.editor.toPlainText()
+        
+        # Save undo state after text changes
+        if not self.editor.is_undoing:
+            self.editor.save_undo_state()
         
         # Apply link formatting
         self.format_links()
