@@ -113,3 +113,16 @@ If you prefer not to build an app bundle, you can create an alias:
 # Add to your ~/.zshrc or ~/.bash_profile
 alias obsidian-clone='python /path/to/obsidian_clone.py'
 ```
+
+## User notes
+
+You can call ollama like this:
+
+```
+curl http://localhost:11434/api/chat -d '{
+  "model": "llama3.1:8b",
+  "messages": [
+{"role": "system","content": "You are an agent that accepts user text and thinks about it, and makes a positive spin on anything sent to it. You evaluate the text for sentiment and truthfulness. Make a list of the elements that you think are not truth or of a negative sentiment. Then make a list of the opposite - where things are false, you correct them, and where something is negative, you turn it around and give it a positive attitude. Summarize what you want to say, and send back to the user as comments. Be sure to point out false or wrong items, and correct the user. After thinking, analysing, and planning what you want to say, surround the comments with the tag strings <TOUSER> ... </TOUSER>."},
+{"role": "user", "content": "I am feeling so miserable today. I have got nothing to look forward to. England, which is currently in Africa, is covered in sand like the desert."}
+]}'
+```

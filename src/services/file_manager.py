@@ -66,6 +66,9 @@ class FileManager:
         # Handle .keys directory: delete and recreate from template
         self._setup_keys_directory()
         
+        # Discover available prompts
+        self.available_prompts = self._discover_prompts()
+        
         # Create default home.md file
         home_file = os.path.join(self.notes_dir, "home.md")
         if not os.path.exists(home_file):
@@ -98,6 +101,56 @@ class FileManager:
         else:
             # Template doesn't exist, create empty .keys directory
             ensure_directory_exists(self.keys_dir)
+    
+    def _discover_prompts(self) -> List[str]:
+        """
+        Discover available prompt names by scanning keys template directory.
+        
+        Returns:
+            List of prompt names (subdirectory names in keys template)
+        """
+        prompts = []
+        
+        if os.path.exists(self.keys_template_dir):
+            try:
+                for item in os.listdir(self.keys_template_dir):
+                    item_path = os.path.join(self.keys_template_dir, item)
+                    if os.path.isdir(item_path):
+                        prompts.append(item)
+            except Exception as e:
+                print(f"Warning: Could not discover prompts: {e}")
+        
+        return sorted(prompts)
+    
+    def get_prompt_files(self, prompt_name: str) -> Dict[str, str]:
+        """
+        Get all files for a specific prompt.
+        
+        Args:
+            prompt_name: Name of the prompt (subdirectory name)
+            
+        Returns:
+            Dictionary mapping filename to file content
+        """
+        prompt_files = {}
+        
+        if prompt_name not in self.available_prompts:
+            return prompt_files
+        
+        # Look in the runtime .keys directory
+        prompt_dir = os.path.join(self.keys_dir, prompt_name)
+        
+        if os.path.exists(prompt_dir):
+            try:
+                for filename in os.listdir(prompt_dir):
+                    file_path = os.path.join(prompt_dir, filename)
+                    if os.path.isfile(file_path) and is_markdown_file(filename):
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            prompt_files[filename] = f.read()
+            except Exception as e:
+                print(f"Warning: Could not read prompt files for {prompt_name}: {e}")
+        
+        return prompt_files
     
     def get_all_notes(self) -> List[Dict[str, str]]:
         """

@@ -7,7 +7,7 @@ containing a file tree sidebar and a markdown editor.
 
 import os
 import sys
-from typing import Optional
+from typing import Optional, Dict
 from datetime import datetime
 
 from PyQt5.QtWidgets import (
@@ -20,6 +20,8 @@ from PyQt5.QtGui import QFont, QTextCursor, QTextCharFormat, QColor
 
 from .widgets.clickable_text_edit import ClickableTextEdit
 from ..services.file_manager import FileManager
+from ..services.prompt_processor import PromptProcessor
+from ..services.ollama_client import OllamaClient
 from ..utils.file_utils import sanitize_filename, expand_user_path
 from ..utils.link_utils import (
     find_all_links, link_to_filepath, create_wiki_link,
@@ -60,6 +62,10 @@ class MainWindow(QMainWindow):
         base_dir = expand_user_path(base_dir)
         notes_dir = os.path.join(base_dir, "obclonedata")
         self.file_manager = FileManager(notes_dir)
+        
+        # Setup prompt processor
+        self.ollama_client = OllamaClient()
+        self.prompt_processor = PromptProcessor(self.file_manager, self.ollama_client)
         
         # Initialize state
         self.current_file = None
@@ -133,6 +139,11 @@ class MainWindow(QMainWindow):
         self.today_button = QPushButton("Today")
         self.today_button.clicked.connect(self.open_today_journal)
         left_layout.addWidget(self.today_button)
+        
+        # Process Prompts button
+        self.process_prompts_button = QPushButton("Process @# Prompts")
+        self.process_prompts_button.clicked.connect(self.process_prompts_in_text)
+        left_layout.addWidget(self.process_prompts_button)
         
         splitter.addWidget(left_widget)
         
@@ -627,6 +638,87 @@ class MainWindow(QMainWindow):
     def auto_save(self) -> None:
         """Auto-save the current file."""
         self.save_current_file()
+    
+    def process_prompts_in_text(self) -> None:
+        """Process all @#promptname patterns found in the current editor text."""
+        if not self.current_file or self.is_read_only:
+            QMessageBox.warning(self, "Cannot Process", 
+                              "Please switch to edit mode and ensure a file is open.")
+            return
+        
+        # Get current text
+        current_text = self.editor.toPlainText()
+        
+        if not current_text.strip():
+            QMessageBox.information(self, "No Content", 
+                                  "No text content found to process.")
+            return
+        
+        # Check if Ollama is available
+        if not self.ollama_client.is_available():
+            QMessageBox.warning(self, "Ollama Unavailable", 
+                              "Ollama is not running or not accessible. Please ensure Ollama is installed and running.")
+            return
+        
+        # Find and process prompts
+        try:
+            results = self.prompt_processor.process_text_with_prompts(current_text)
+            
+            if not results['patterns']:
+                QMessageBox.information(self, "No Prompts Found", 
+                                      f"No @#promptname patterns found.\nAvailable prompts: {', '.join(self.prompt_processor.get_available_prompts())}")
+                return
+            
+            if results['errors']:
+                error_msg = "\n".join(results['errors'])
+                QMessageBox.warning(self, "Processing Errors", f"Some errors occurred:\n{error_msg}")
+            
+            # Insert responses into the text
+            if results['results']:
+                self._insert_prompt_responses(current_text, results['results'])
+                QMessageBox.information(self, "Processing Complete", 
+                                      f"Processed {len(results['results'])} prompt(s) successfully.")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error processing prompts: {str(e)}")
+    
+    def _insert_prompt_responses(self, original_text: str, results: Dict) -> None:
+        """
+        Insert prompt responses into the editor text.
+        
+        Args:
+            original_text: Original text content
+            results: Dictionary of processing results
+        """
+        # Sort results by position (reverse order to maintain positions)
+        sorted_results = sorted(results.items(), key=lambda x: x[0], reverse=True)
+        
+        modified_text = original_text
+        
+        for position, result in sorted_results:
+            prompt_name = result['prompt_name']
+            response = result['response']
+            pattern_end = result['pattern_end']
+            
+            # Format the response
+            formatted_response = self.prompt_processor.format_response_for_insertion(response, prompt_name)
+            
+            # Insert after the @#promptname pattern
+            modified_text = (modified_text[:pattern_end] + 
+                           formatted_response + 
+                           modified_text[pattern_end:])
+        
+        # Update the editor
+        self.editor.setPlainText(modified_text)
+        
+        # Update stored content
+        self.original_content = modified_text
+        
+        # Apply formatting
+        if self.is_read_only:
+            self.format_for_read_only()
+        else:
+            self.format_links()
     
     def closeEvent(self, event) -> None:
         """

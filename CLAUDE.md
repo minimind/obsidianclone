@@ -58,6 +58,14 @@ The `.keys` directory is automatically recreated from the `keys/` template direc
 - Runtime location: `obclonedata/.keys/` (copied fresh each startup)
 - Initial template includes: `comment/system.md` and `comment/assistant.md`
 
+### AI Prompt Processing
+The application supports AI-powered text processing using Ollama:
+- Use `@#promptname` patterns in your text (e.g., `@#comment`)
+- Available prompts are discovered from subdirectories in `keys/`
+- Click "Process @# Prompts" button to send text to Ollama for analysis
+- Requires Ollama to be installed and running locally
+- Responses are inserted after the prompt pattern with clear formatting
+
 You can override this location using the `OBCLONEDATA` environment variable:
 
 ```bash
@@ -110,3 +118,4 @@ tests/
 5. **Journal Entries**: Daily journal creation with date-based organization
 6. **Drag & Drop**: File organization within the tree structure
 7. **Undo/Redo**: Full undo/redo support in edit mode
+8. **AI Processing**: Ollama integration for processing text with `@#promptname` patterns
