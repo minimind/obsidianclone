@@ -33,6 +33,8 @@ class FileManager:
         notes_dir: Base directory for all notes
         trash_dir: Directory for deleted files
         journal_dir: Directory for journal entries
+        keys_dir: Directory for key-value storage and metadata (recreated from template on startup)
+        keys_template_dir: Template directory that gets copied to .keys on startup
     """
     
     def __init__(self, notes_dir: str):
@@ -45,6 +47,14 @@ class FileManager:
         self.notes_dir = notes_dir
         self.trash_dir = os.path.join(notes_dir, ".trash")
         self.journal_dir = os.path.join(notes_dir, ".journal")
+        self.keys_dir = os.path.join(notes_dir, ".keys")
+        
+        # Find the keys template directory (in the project root)
+        # Go up from src/services to find the project root
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(current_dir))
+        self.keys_template_dir = os.path.join(project_root, "keys")
+        
         self._setup_directories()
     
     def _setup_directories(self) -> None:
@@ -53,10 +63,41 @@ class FileManager:
         ensure_directory_exists(self.trash_dir)
         ensure_directory_exists(self.journal_dir)
         
+        # Handle .keys directory: delete and recreate from template
+        self._setup_keys_directory()
+        
         # Create default home.md file
         home_file = os.path.join(self.notes_dir, "home.md")
         if not os.path.exists(home_file):
             create_empty_file(home_file)
+    
+    def _setup_keys_directory(self) -> None:
+        """
+        Setup the .keys directory by copying from the keys template.
+        
+        This method:
+        1. Removes any existing .keys directory
+        2. Copies the entire keys template directory to .keys
+        3. Creates an empty .keys directory if template doesn't exist
+        """
+        # Remove existing .keys directory if it exists
+        if os.path.exists(self.keys_dir):
+            try:
+                shutil.rmtree(self.keys_dir)
+            except Exception as e:
+                print(f"Warning: Could not remove existing .keys directory: {e}")
+        
+        # Copy from template if it exists
+        if os.path.exists(self.keys_template_dir):
+            try:
+                shutil.copytree(self.keys_template_dir, self.keys_dir)
+            except Exception as e:
+                print(f"Warning: Could not copy keys template: {e}")
+                # Fallback: create empty .keys directory
+                ensure_directory_exists(self.keys_dir)
+        else:
+            # Template doesn't exist, create empty .keys directory
+            ensure_directory_exists(self.keys_dir)
     
     def get_all_notes(self) -> List[Dict[str, str]]:
         """
@@ -95,6 +136,8 @@ class FileManager:
                         dir_type = "trash"
                     elif item == ".journal" and directory == self.notes_dir:
                         dir_type = "journal"
+                    elif item == ".keys" and directory == self.notes_dir:
+                        dir_type = "keys"
                     else:
                         dir_type = "directory"
                     
@@ -392,17 +435,18 @@ class FileManager:
     
     def is_special_directory(self, path: str) -> bool:
         """
-        Check if a path is a special directory (trash or journal).
+        Check if a path is a special directory (trash, journal, or keys).
         
         Args:
             path: Path to check
             
         Returns:
-            True if the path is trash or journal directory
+            True if the path is trash, journal, or keys directory
         """
         norm_path = normalize_path(path)
         return (norm_path == normalize_path(self.trash_dir) or 
-                norm_path == normalize_path(self.journal_dir))
+                norm_path == normalize_path(self.journal_dir) or
+                norm_path == normalize_path(self.keys_dir))
     
     def is_in_trash(self, path: str) -> bool:
         """

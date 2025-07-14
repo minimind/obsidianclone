@@ -191,9 +191,14 @@ class MainWindow(QMainWindow):
                 font = tree_item.font(0)
                 font.setItalic(True)
                 tree_item.setFont(0, font)
+            elif note['type'] == 'keys':
+                tree_item.setForeground(0, QColor(128, 0, 128))  # Purple color
+                font = tree_item.font(0)
+                font.setItalic(True)
+                tree_item.setFont(0, font)
             
             # Add to map for building hierarchy
-            if note['type'] in ['directory', 'trash', 'journal']:
+            if note['type'] in ['directory', 'trash', 'journal', 'keys']:
                 item_map[note['path']] = tree_item
     
     def open_default_file(self) -> None:
@@ -275,7 +280,7 @@ class MainWindow(QMainWindow):
         # Determine parent directory
         if current_item:
             item_type = current_item.data(0, Qt.UserRole + 1)
-            if item_type in ["directory", "trash", "journal"]:
+            if item_type in ["directory", "trash", "journal", "keys"]:
                 parent_path = current_item.data(0, Qt.UserRole)
                 parent_item = current_item
             else:
@@ -405,11 +410,11 @@ class MainWindow(QMainWindow):
             item_type = target_item.data(0, Qt.UserRole + 1)
             
             # Don't allow drops on special directories
-            if item_type in ["trash", "journal"]:
+            if item_type in ["trash", "journal", "keys"]:
                 event.ignore()
                 return
                 
-            if item_type in ["directory", "trash", "journal"]:
+            if item_type in ["directory", "trash", "journal", "keys"]:
                 target_dir = target_item.data(0, Qt.UserRole)
             else:
                 # Dropped on a file, use its parent directory

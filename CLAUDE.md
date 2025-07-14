@@ -46,7 +46,19 @@ make install
 ```
 
 ### Data Directory Location
-By default, the application creates an `obclonedata` subdirectory in the current working directory. You can override this location using the `OBCLONEDATA` environment variable:
+By default, the application creates an `obclonedata` subdirectory in the current working directory with the following structure:
+- `.trash/` - Deleted files (gray color in UI)
+- `.journal/` - Daily journal entries (blue color in UI)  
+- `.keys/` - Key-value storage and metadata (purple color in UI, recreated from template on startup)
+- `home.md` - Default starting note
+
+### Keys Template System
+The `.keys` directory is automatically recreated from the `keys/` template directory on every application startup:
+- Template location: `keys/` (in project root)
+- Runtime location: `obclonedata/.keys/` (copied fresh each startup)
+- Initial template includes: `comment/system.md` and `comment/assistant.md`
+
+You can override this location using the `OBCLONEDATA` environment variable:
 
 ```bash
 # Use a specific directory for data storage
