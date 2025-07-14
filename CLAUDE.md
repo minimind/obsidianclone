@@ -15,9 +15,20 @@ pip install -r requirements.txt
 
 ### Run the Application
 ```bash
-python obsidian_clone.py
+python main.py
 # or
-./obsidian_clone.py
+./main.py
+```
+
+### Run Tests
+```bash
+# Run all unit tests
+python -m unittest discover tests/unit -v
+
+# Run specific test module
+python -m unittest tests.unit.test_file_utils -v
+python -m unittest tests.unit.test_link_utils -v
+python -m unittest tests.unit.test_date_utils -v
 ```
 
 ### Build macOS App Bundle
@@ -40,27 +51,50 @@ By default, the application creates an `obclonedata` subdirectory in the current
 ```bash
 # Use a specific directory for data storage
 export OBCLONEDATA=/home/user/Documents
-python obsidian_clone.py
+python main.py
 
 # Or set it inline
-OBCLONEDATA=/path/to/data python obsidian_clone.py
+OBCLONEDATA=/path/to/data python main.py
 ```
 
 When `OBCLONEDATA` is set, the application will create/use `obclonedata` as a subdirectory within the specified path.
 
 ## Architecture
 
-The application consists of a single main file (`obsidian_clone.py`) that implements:
+The application is now structured as a modular Python package with the following components:
 
-- **Main Window**: QMainWindow-based application with split-pane layout
-- **File List Widget**: Left sidebar showing all `.md` files in the obclonedata directory
-- **Markdown Editor**: Right-side QTextEdit for editing markdown content
-- **Auto-save**: Timer-based auto-save every 5 seconds
-- **Wiki-style Linking**: Pattern matching for `[[page]]` syntax that auto-creates new files
+### Directory Structure
+```
+src/
+├── ui/
+│   ├── main_window.py          # Main application window
+│   └── widgets/
+│       └── clickable_text_edit.py  # Custom text editor widget
+├── services/
+│   └── file_manager.py         # File operations service
+├── utils/
+│   ├── file_utils.py          # File and path utilities
+│   ├── link_utils.py          # Wiki-style link processing
+│   └── date_utils.py          # Date formatting utilities
+└── models/                     # Data models (future expansion)
+
+tests/
+└── unit/                      # Unit tests for all modules
+```
+
+### Key Components
+
+- **MainWindow** (`src/ui/main_window.py`): QMainWindow-based application with split-pane layout
+- **ClickableTextEdit** (`src/ui/widgets/clickable_text_edit.py`): Custom text editor with link support and undo/redo
+- **FileManager** (`src/services/file_manager.py`): Centralized file operations service
+- **Utility Modules**: Modular functions for file operations, link processing, and date formatting
 
 ## Key Features
 
-1. **File Management**: Automatically lists and updates `.md` files in the working directory
+1. **File Management**: Automatically lists and updates `.md` files with hierarchical directory support
 2. **Link Detection**: Uses regex pattern `\[\[([^\]]+)\]\]` to detect and create new pages
 3. **Auto-save**: Saves current file every 5 seconds and on file switch/close
-4. **Simple UI**: 30/70 split between file list and editor
+4. **Mode Toggle**: Switch between read-only and edit modes
+5. **Journal Entries**: Daily journal creation with date-based organization
+6. **Drag & Drop**: File organization within the tree structure
+7. **Undo/Redo**: Full undo/redo support in edit mode

@@ -11,7 +11,7 @@ if os.path.exists('build'):
 if os.path.exists('dist'):
     shutil.rmtree('dist')
 
-APP = ['obsidian_clone.py']
+APP = ['main.py']
 DATA_FILES = []
 OPTIONS = {
     'argv_emulation': False,
@@ -29,7 +29,7 @@ OPTIONS = {
             'OBCLONEDATA': '~/Documents/ObsidianClone'
         }
     },
-    'packages': ['PyQt5'],
+    'packages': ['PyQt5', 'src'],
     'includes': ['PyQt5.QtCore', 'PyQt5.QtGui', 'PyQt5.QtWidgets'],
     'excludes': ['matplotlib', 'numpy', 'scipy', 'PIL', 'tkinter', 'test'],
     'site_packages': False,
