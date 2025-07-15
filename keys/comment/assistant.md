@@ -1,1 +1,0 @@
-Remember to be truthful and positive.

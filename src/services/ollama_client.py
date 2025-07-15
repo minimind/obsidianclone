@@ -159,14 +159,14 @@ class OllamaClient:
     def process_prompt_with_files(self, user_text: str, prompt_files: Dict[str, str], 
                                  model: Optional[str] = None) -> Optional[str]:
         """
-        Process user text using prompt files.
+        Process user text using prompt file.
         
-        Combines the prompt files into a system prompt and sends the user text
+        Uses the single prompt file as the system prompt and sends the user text
         for processing.
         
         Args:
             user_text: User's input text to process
-            prompt_files: Dictionary of prompt files (filename -> content)
+            prompt_files: Dictionary with single prompt file (filename -> content)
             model: Model to use (defaults to default_model)
             
         Returns:
@@ -176,30 +176,16 @@ class OllamaClient:
         self.logger.info("NEW PROMPT REQUEST")
         self.logger.info("="*80)
         
-        # Log the prompt files with their types
-        system_prompt_parts = []
+        # Get the system prompt from the single file
+        system_prompt = ""
         
-        # Add system.md content first if it exists
-        if 'system.md' in prompt_files:
-            self.logger.info("\n--- SYSTEM PROMPT (from system.md) ---")
-            self.logger.info(prompt_files['system.md'])
-            self.logger.info("--- END SYSTEM PROMPT ---\n")
-            system_prompt_parts.append(prompt_files['system.md'])
-        
-        # Add assistant.md content if it exists
-        if 'assistant.md' in prompt_files:
-            self.logger.info("\n--- ASSISTANT PROMPT (from assistant.md) ---")
-            self.logger.info(prompt_files['assistant.md'])
-            self.logger.info("--- END ASSISTANT PROMPT ---\n")
-            system_prompt_parts.append(prompt_files['assistant.md'])
-        
-        # Add any other prompt files
+        # There should be exactly one file in prompt_files
         for filename, content in prompt_files.items():
-            if filename not in ['system.md', 'assistant.md']:
-                self.logger.info(f"\n--- ADDITIONAL PROMPT (from {filename}) ---")
-                self.logger.info(content)
-                self.logger.info(f"--- END ADDITIONAL PROMPT ---\n")
-                system_prompt_parts.append(content)
+            self.logger.info(f"\n--- SYSTEM PROMPT (from {filename}) ---")
+            self.logger.info(content)
+            self.logger.info("--- END SYSTEM PROMPT ---\n")
+            system_prompt = content
+            break  # Only one file expected
         
         # Log user text
         self.logger.info("\n--- USER TEXT ---")
@@ -207,7 +193,6 @@ class OllamaClient:
         self.logger.info("--- END USER TEXT ---\n")
         
         # Combine system prompt and user text
-        system_prompt = "\n\n".join(system_prompt_parts)
         full_prompt = f"{system_prompt}\n\nUser text to process:\n{user_text}"
         
         # Log the full combined prompt

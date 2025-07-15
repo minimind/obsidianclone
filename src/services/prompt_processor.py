@@ -103,10 +103,10 @@ class PromptProcessor:
         if not self.ollama_client.is_available():
             return "Error: Ollama is not available. Please ensure Ollama is running."
         
-        # Get prompt files
+        # Get prompt file
         prompt_files = self.file_manager.get_prompt_files(prompt_name)
         if not prompt_files:
-            return f"Error: No prompt files found for '{prompt_name}'"
+            return f"Error: No prompt file found for '{prompt_name}'"
         
         # Process with Ollama
         response = self.ollama_client.process_prompt_with_files(user_text, prompt_files)

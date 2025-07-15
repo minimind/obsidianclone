@@ -107,7 +107,7 @@ class FileManager:
         Discover available prompt names by scanning keys template directory.
         
         Returns:
-            List of prompt names (subdirectory names in keys template)
+            List of prompt names (filenames without .md extension in keys template)
         """
         prompts = []
         
@@ -115,8 +115,11 @@ class FileManager:
             try:
                 for item in os.listdir(self.keys_template_dir):
                     item_path = os.path.join(self.keys_template_dir, item)
-                    if os.path.isdir(item_path):
-                        prompts.append(item)
+                    # Check if it's a markdown file (not a directory)
+                    if os.path.isfile(item_path) and is_markdown_file(item):
+                        # Remove .md extension to get the prompt name
+                        prompt_name = remove_markdown_extension(item)
+                        prompts.append(prompt_name)
             except Exception as e:
                 print(f"Warning: Could not discover prompts: {e}")
         
@@ -124,31 +127,30 @@ class FileManager:
     
     def get_prompt_files(self, prompt_name: str) -> Dict[str, str]:
         """
-        Get all files for a specific prompt.
+        Get the prompt file for a specific prompt.
         
         Args:
-            prompt_name: Name of the prompt (subdirectory name)
+            prompt_name: Name of the prompt (filename without .md extension)
             
         Returns:
-            Dictionary mapping filename to file content
+            Dictionary with single entry mapping prompt filename to file content
         """
         prompt_files = {}
         
         if prompt_name not in self.available_prompts:
             return prompt_files
         
-        # Look in the runtime .keys directory
-        prompt_dir = os.path.join(self.keys_dir, prompt_name)
+        # Look in the runtime .keys directory for the specific file
+        prompt_filename = add_markdown_extension(prompt_name)
+        prompt_file_path = os.path.join(self.keys_dir, prompt_filename)
         
-        if os.path.exists(prompt_dir):
+        if os.path.exists(prompt_file_path):
             try:
-                for filename in os.listdir(prompt_dir):
-                    file_path = os.path.join(prompt_dir, filename)
-                    if os.path.isfile(file_path) and is_markdown_file(filename):
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            prompt_files[filename] = f.read()
+                with open(prompt_file_path, 'r', encoding='utf-8') as f:
+                    # Return with the full filename as key for consistency
+                    prompt_files[prompt_filename] = f.read()
             except Exception as e:
-                print(f"Warning: Could not read prompt files for {prompt_name}: {e}")
+                print(f"Warning: Could not read prompt file for {prompt_name}: {e}")
         
         return prompt_files
     
