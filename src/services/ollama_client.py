@@ -8,6 +8,10 @@ for processing prompts and generating responses.
 import json
 import urllib.request
 import urllib.parse
+import logging
+import os
+import tempfile
+from datetime import datetime
 from typing import Dict, Optional, Any
 from urllib.error import URLError, HTTPError
 
@@ -38,6 +42,31 @@ class OllamaClient:
         self.base_url = base_url.rstrip('/')
         self.default_model = default_model
         self.timeout = timeout
+        
+        # Setup logging to temp directory
+        log_dir = tempfile.gettempdir()
+        log_file = os.path.join(log_dir, f"ollama_prompts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+        
+        # Configure logger
+        self.logger = logging.getLogger(f"OllamaClient_{id(self)}")
+        self.logger.setLevel(logging.DEBUG)
+        
+        # Create file handler
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.DEBUG)
+        
+        # Create formatter
+        formatter = logging.Formatter('%(asctime)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        
+        # Add handler to logger
+        self.logger.addHandler(file_handler)
+        
+        # Store log file path for easy access
+        self.log_file_path = log_file
+        
+        self.logger.info(f"Ollama logging initialized. Log file: {log_file}")
+        print(f"Ollama prompts and responses will be logged to: {log_file}")
     
     def is_available(self) -> bool:
         """
@@ -143,27 +172,64 @@ class OllamaClient:
         Returns:
             Generated response, or None if processing failed
         """
-        # Combine prompt files into a system prompt
+        self.logger.info("="*80)
+        self.logger.info("NEW PROMPT REQUEST")
+        self.logger.info("="*80)
+        
+        # Log the prompt files with their types
         system_prompt_parts = []
         
         # Add system.md content first if it exists
         if 'system.md' in prompt_files:
+            self.logger.info("\n--- SYSTEM PROMPT (from system.md) ---")
+            self.logger.info(prompt_files['system.md'])
+            self.logger.info("--- END SYSTEM PROMPT ---\n")
             system_prompt_parts.append(prompt_files['system.md'])
         
         # Add assistant.md content if it exists
         if 'assistant.md' in prompt_files:
+            self.logger.info("\n--- ASSISTANT PROMPT (from assistant.md) ---")
+            self.logger.info(prompt_files['assistant.md'])
+            self.logger.info("--- END ASSISTANT PROMPT ---\n")
             system_prompt_parts.append(prompt_files['assistant.md'])
         
         # Add any other prompt files
         for filename, content in prompt_files.items():
             if filename not in ['system.md', 'assistant.md']:
+                self.logger.info(f"\n--- ADDITIONAL PROMPT (from {filename}) ---")
+                self.logger.info(content)
+                self.logger.info(f"--- END ADDITIONAL PROMPT ---\n")
                 system_prompt_parts.append(content)
+        
+        # Log user text
+        self.logger.info("\n--- USER TEXT ---")
+        self.logger.info(user_text)
+        self.logger.info("--- END USER TEXT ---\n")
         
         # Combine system prompt and user text
         system_prompt = "\n\n".join(system_prompt_parts)
         full_prompt = f"{system_prompt}\n\nUser text to process:\n{user_text}"
         
-        return self.generate_completion(full_prompt, model)
+        # Log the full combined prompt
+        self.logger.info("\n--- FULL COMBINED PROMPT SENT TO OLLAMA ---")
+        self.logger.info(full_prompt)
+        self.logger.info("--- END FULL PROMPT ---\n")
+        
+        # Call generate_completion and log the response
+        response = self.generate_completion(full_prompt, model)
+        
+        if response:
+            self.logger.info("\n--- OLLAMA RESPONSE ---")
+            self.logger.info(response)
+            self.logger.info("--- END OLLAMA RESPONSE ---\n")
+        else:
+            self.logger.error("OLLAMA RESPONSE: None (request failed)")
+        
+        self.logger.info("="*80)
+        self.logger.info("END OF REQUEST")
+        self.logger.info("="*80 + "\n\n")
+        
+        return response
     
     def get_available_models(self) -> list:
         """
@@ -194,3 +260,12 @@ class OllamaClient:
         except Exception as e:
             print(f"Error getting available models: {e}")
             return []
+    
+    def get_log_file_path(self) -> str:
+        """
+        Get the path to the current log file.
+        
+        Returns:
+            Path to the log file where prompts and responses are logged
+        """
+        return self.log_file_path
