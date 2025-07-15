@@ -8,8 +8,8 @@ links, undo/redo functionality, and different display modes for reading and edit
 import re
 from typing import Optional, Dict, Any
 from PyQt5.QtWidgets import QTextEdit
-from PyQt5.QtCore import Qt, QEvent
-from PyQt5.QtGui import QTextCursor, QTextCharFormat, QColor
+from PyQt5.QtCore import Qt, QEvent, QRect, QRectF, QPointF
+from PyQt5.QtGui import QTextCursor, QTextCharFormat, QColor, QTextBlock, QTextBlockFormat, QPainter, QBrush, QPolygonF
 
 
 class ClickableTextEdit(QTextEdit):
@@ -45,6 +45,9 @@ class ClickableTextEdit(QTextEdit):
         self.viewport().setCursor(Qt.IBeamCursor)
         self.anchor_at_cursor = None
         
+        # Connect text change signal for callout updates
+        self.textChanged.connect(self.on_internal_text_changed)
+        
         # Undo/Redo stack configuration
         self.undo_stack = []
         self.redo_stack = []
@@ -52,9 +55,13 @@ class ClickableTextEdit(QTextEdit):
         self.last_saved_state = ""
         self.is_undoing = False
         
+        # Callout folding state
+        self.folded_callouts = set()  # Set of block numbers that are folded
+        self.callout_blocks = {}  # Map block number to callout info
+        
     def mousePressEvent(self, event: QEvent) -> None:
         """
-        Handle mouse press events to detect clicks on links.
+        Handle mouse press events to detect clicks on links and callout folding.
         
         In read-only mode, maps display positions back to original text positions
         to handle links with hidden brackets. In edit mode, directly checks for
@@ -66,6 +73,19 @@ class ClickableTextEdit(QTextEdit):
         if event.button() == Qt.LeftButton:
             cursor = self.cursorForPosition(event.pos())
             position = cursor.position()
+            
+            # Check if clicking on a callout block
+            block = cursor.block()
+            block_num = block.blockNumber()
+            
+            # Check if this is a callout and if we're clicking near the left margin
+            if self.is_callout_block(block_num):
+                # Get click position relative to block
+                click_x = event.pos().x()
+                if click_x < 30:  # Click in left margin area
+                    self.toggle_callout_fold(block_num)
+                    event.accept()
+                    return
             
             # Handle read-only mode where brackets are hidden
             if self.parent_window and self.parent_window.is_read_only:
@@ -117,9 +137,9 @@ class ClickableTextEdit(QTextEdit):
     
     def mouseMoveEvent(self, event: QEvent) -> None:
         """
-        Handle mouse move events to change cursor when hovering over links.
+        Handle mouse move events to change cursor when hovering over links and callout fold indicators.
         
-        Changes the cursor to a pointing hand when hovering over clickable links,
+        Changes the cursor to a pointing hand when hovering over clickable links or fold indicators,
         and back to an I-beam cursor otherwise.
         
         Args:
@@ -127,6 +147,17 @@ class ClickableTextEdit(QTextEdit):
         """
         cursor = self.cursorForPosition(event.pos())
         position = cursor.position()
+        
+        # Check if hovering over callout fold indicator
+        if event.pos().x() < 30:  # In left margin area
+            block = cursor.block()
+            block_num = block.blockNumber()
+            if self.is_callout_block(block_num):
+                callout_info = self.callout_blocks[block_num]
+                if block_num == callout_info['start']:  # Only on first line of callout
+                    self.viewport().setCursor(Qt.PointingHandCursor)
+                    super().mouseMoveEvent(event)
+                    return
         
         hovering_on_link = False
         
@@ -302,6 +333,8 @@ class ClickableTextEdit(QTextEdit):
         self.undo_stack.clear()
         self.redo_stack.clear()
         self.last_saved_state = self.toPlainText()
+        # Also clear folded callouts when loading new file
+        self.folded_callouts.clear()
     
     def setPlainText(self, text: str) -> None:
         """
@@ -311,8 +344,182 @@ class ClickableTextEdit(QTextEdit):
             text: The text to set in the editor
         """
         super().setPlainText(text)
+        # Update callout blocks
+        self.find_callout_blocks()
         # Don't save undo state if we're in the middle of undoing/redoing
         if not self.is_undoing and self.parent_window and hasattr(self.parent_window, 'is_read_only') and not self.parent_window.is_read_only:
             # Save initial state when setting new text
             if not self.undo_stack or (self.undo_stack and self.undo_stack[-1]['text'] != text):
                 self.save_undo_state()
+                
+    def find_callout_blocks(self) -> None:
+        """Find all callout blocks in the document."""
+        self.callout_blocks.clear()
+        document = self.document()
+        
+        current_callout_start = None
+        
+        for block_num in range(document.blockCount()):
+            block = document.findBlockByNumber(block_num)
+            text = block.text()
+            
+            # Check if line starts with > (callout)
+            if text.strip().startswith('>'):
+                if current_callout_start is None:
+                    current_callout_start = block_num
+            else:
+                # Not a callout line - end current callout if exists
+                if current_callout_start is not None:
+                    # Store callout block info
+                    for i in range(current_callout_start, block_num):
+                        self.callout_blocks[i] = {
+                            'start': current_callout_start,
+                            'end': block_num - 1
+                        }
+                    current_callout_start = None
+        
+        # Handle callout that extends to end of document
+        if current_callout_start is not None:
+            for i in range(current_callout_start, document.blockCount()):
+                self.callout_blocks[i] = {
+                    'start': current_callout_start,
+                    'end': document.blockCount() - 1
+                }
+                
+    def is_callout_block(self, block_num: int) -> bool:
+        """Check if a block is part of a callout."""
+        return block_num in self.callout_blocks
+        
+    def toggle_callout_fold(self, block_num: int) -> None:
+        """Toggle the fold state of a callout block."""
+        if block_num not in self.callout_blocks:
+            return
+            
+        callout_info = self.callout_blocks[block_num]
+        start_block = callout_info['start']
+        
+        if start_block in self.folded_callouts:
+            self.folded_callouts.remove(start_block)
+        else:
+            self.folded_callouts.add(start_block)
+            
+        # Trigger repaint and re-layout
+        self.viewport().update()
+        
+        # Hide/show blocks
+        document = self.document()
+        for block_num in range(document.blockCount()):
+            block = document.findBlockByNumber(block_num)
+            
+            if block_num in self.callout_blocks:
+                callout_info = self.callout_blocks[block_num]
+                start_block = callout_info['start']
+                
+                # Hide non-first lines of folded callouts
+                if start_block in self.folded_callouts and block_num > start_block:
+                    block.setVisible(False)
+                else:
+                    block.setVisible(True)
+            else:
+                block.setVisible(True)
+                
+        # Force document re-layout
+        document.markContentsDirty(0, document.characterCount())
+        
+    def paintEvent(self, event: QEvent) -> None:
+        """Override paint event to draw callout backgrounds."""
+        # First, let the base class draw the text
+        super().paintEvent(event)
+        
+        # Update callout blocks
+        self.find_callout_blocks()
+        
+        # Draw callout backgrounds
+        painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Light yellow color for callouts
+        callout_color = QColor(255, 250, 205, 80)  # Light yellow with transparency
+        
+        document = self.document()
+        
+        # Track which callouts we've already drawn
+        drawn_callouts = set()
+        
+        for block_num in range(document.blockCount()):
+            if block_num in self.callout_blocks:
+                callout_info = self.callout_blocks[block_num]
+                start_block = callout_info['start']
+                end_block = callout_info['end']
+                
+                # Only draw each callout once (at its start block)
+                if block_num != start_block:
+                    continue
+                    
+                # Skip if we've already drawn this callout
+                if start_block in drawn_callouts:
+                    continue
+                drawn_callouts.add(start_block)
+                
+                # Get the rectangle for the entire callout
+                start_block_obj = document.findBlockByNumber(start_block)
+                
+                # Determine the actual end block based on fold state
+                if start_block in self.folded_callouts:
+                    # If folded, only show the first line
+                    actual_end_block = start_block
+                else:
+                    # If not folded, show all lines
+                    actual_end_block = end_block
+                
+                end_block_obj = document.findBlockByNumber(actual_end_block)
+                
+                # Get block layout coordinates
+                start_cursor = QTextCursor(start_block_obj)
+                end_cursor = QTextCursor(end_block_obj)
+                end_cursor.movePosition(QTextCursor.EndOfBlock)
+                
+                start_rect = self.cursorRect(start_cursor)
+                end_rect = self.cursorRect(end_cursor)
+                
+                # Create rectangle covering the callout
+                callout_rect = QRectF(
+                    start_rect.left() - 5,
+                    start_rect.top(),
+                    self.viewport().width() - 10,
+                    end_rect.bottom() - start_rect.top()
+                )
+                
+                # Draw rounded rectangle background
+                painter.setBrush(QBrush(callout_color))
+                painter.setPen(Qt.NoPen)
+                painter.drawRoundedRect(callout_rect, 5, 5)
+                
+                # Draw fold indicator on the first line
+                if block_num == start_block:
+                    # Draw a small triangle or arrow
+                    indicator_rect = QRectF(5, start_rect.top() + 5, 10, 10)
+                    painter.setBrush(QBrush(QColor(100, 100, 100)))
+                    
+                    if start_block in self.folded_callouts:
+                        # Draw right-pointing triangle for folded
+                        triangle = QPolygonF([
+                            QPointF(indicator_rect.left(), indicator_rect.top()),
+                            QPointF(indicator_rect.left(), indicator_rect.bottom()),
+                            QPointF(indicator_rect.right(), indicator_rect.center().y())
+                        ])
+                    else:
+                        # Draw down-pointing triangle for unfolded
+                        triangle = QPolygonF([
+                            QPointF(indicator_rect.left(), indicator_rect.top()),
+                            QPointF(indicator_rect.right(), indicator_rect.top()),
+                            QPointF(indicator_rect.center().x(), indicator_rect.bottom())
+                        ])
+                    painter.drawPolygon(triangle)
+                
+        painter.end()
+        
+    def on_internal_text_changed(self) -> None:
+        """Handle internal text changes to update callout blocks."""
+        self.find_callout_blocks()
+        self.viewport().update()
