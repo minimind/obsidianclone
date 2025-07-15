@@ -57,10 +57,11 @@ class PromptProcessor:
     
     def extract_user_text_for_prompt(self, text: str, prompt_start: int, prompt_end: int) -> str:
         """
-        Extract the user text that should be processed by the prompt.
+        Extract the full document text for chat API processing.
         
-        This method extracts the text preceding the @#promptname pattern,
-        typically the current paragraph or sentence.
+        With the chat API, we need to send the entire document context
+        so the system can properly parse conversation history between
+        user and assistant messages.
         
         Args:
             text: Full text content
@@ -68,26 +69,11 @@ class PromptProcessor:
             prompt_end: End position of the @#promptname pattern
             
         Returns:
-            Extracted user text to be processed
+            Full document text before the prompt pattern for chat API processing
         """
-        # Get text before the prompt pattern
-        text_before = text[:prompt_start].strip()
-        
-        # Find the start of the current paragraph/section
-        # Look for double newlines, or start of text
-        last_double_newline = text_before.rfind('\n\n')
-        if last_double_newline != -1:
-            user_text = text_before[last_double_newline:].strip()
-        else:
-            # If no double newline found, use the last line(s)
-            lines = text_before.split('\n')
-            if len(lines) > 3:
-                # Take last 3 lines to provide some context
-                user_text = '\n'.join(lines[-3:]).strip()
-            else:
-                user_text = text_before
-        
-        return user_text
+        # Return all text before the prompt pattern for chat API processing
+        # The ollama_client will parse this to identify user vs assistant content
+        return text[:prompt_start].strip()
     
     def process_prompt(self, prompt_name: str, user_text: str) -> Optional[str]:
         """
