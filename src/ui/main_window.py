@@ -508,6 +508,9 @@ class MainWindow(QMainWindow):
             self.format_for_read_only()
         else:
             self.format_links()
+        
+        # Refresh AI response formatting after the main formatting is done
+        self.editor.refresh_formatting()
     
     def on_text_changed(self) -> None:
         """Handle text changes in the editor."""
@@ -535,10 +538,13 @@ class MainWindow(QMainWindow):
         # Save cursor position
         saved_position = cursor.position()
         
-        # Reset formatting
+        # Reset formatting but preserve AI response formatting
         cursor.select(QTextCursor.Document)
         default_format = QTextCharFormat()
         cursor.setCharFormat(default_format)
+        
+        # Reapply AI response formatting after resetting
+        self.editor.apply_ai_response_formatting()
         
         # Find and format all links
         text = self.editor.toPlainText()
@@ -591,6 +597,9 @@ class MainWindow(QMainWindow):
             cursor.setCharFormat(link_format)
         
         cursor.endEditBlock()
+        
+        # Apply AI response formatting after link formatting
+        self.editor.apply_ai_response_formatting()
         
         # Reconnect the signal
         self.editor.textChanged.connect(self.on_text_changed)
@@ -719,6 +728,8 @@ class MainWindow(QMainWindow):
             self.format_for_read_only()
         else:
             self.format_links()
+        
+        # AI response formatting is now handled within format_links()
     
     def closeEvent(self, event) -> None:
         """

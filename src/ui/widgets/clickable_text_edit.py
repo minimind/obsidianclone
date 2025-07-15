@@ -61,6 +61,9 @@ class ClickableTextEdit(QTextEdit):
         # Chat message blocks for new chat UI
         self.chat_message_blocks = {}  # Map block number to {'role': 'user'|'assistant', 'start': int, 'end': int}
         
+        # Flag to prevent recursive formatting calls
+        self.is_formatting = False
+        
     def mousePressEvent(self, event: QEvent) -> None:
         """
         Handle mouse press events to detect clicks on links.
@@ -352,6 +355,12 @@ class ClickableTextEdit(QTextEdit):
         # Update AI responses and chat messages
         self.find_ai_response_blocks()
         self.find_chat_message_blocks()
+        self.update_block_visibility()
+        
+        # Apply formatting only when loading content, not during editing
+        if not self.is_undoing:
+            self.apply_ai_response_formatting()
+        
         # Don't save undo state if we're in the middle of undoing/redoing
         if not self.is_undoing and self.parent_window and hasattr(self.parent_window, 'is_read_only') and not self.parent_window.is_read_only:
             # Save initial state when setting new text
@@ -359,19 +368,62 @@ class ClickableTextEdit(QTextEdit):
                 self.save_undo_state()
         
     def paintEvent(self, event: QEvent) -> None:
-        """Simplified paint event with no special formatting."""
-        # Just let the base class draw the text normally
+        """Paint event with hidden markers."""
+        # Let the base class draw the text
         super().paintEvent(event)
         
-        # Update chat message detection for uneditable blocks
+        # Update block detection and hide markers
         self.find_ai_response_blocks()
         self.find_chat_message_blocks()
+        self.update_block_visibility()
     
     
-    def apply_chat_message_formatting(self) -> None:
-        """Apply minimal formatting to chat messages (simplified)."""
-        # No special formatting needed - everything uses default text appearance
-        pass
+    def apply_ai_response_formatting(self) -> None:
+        """Apply visual formatting to AI response blocks."""
+        if self.is_formatting:
+            return
+        
+        self.is_formatting = True
+        try:
+            # Create pale blue format for AI responses
+            ai_format = QTextCharFormat()
+            ai_format.setForeground(QColor(100, 149, 237))  # Pale blue
+            
+            # Go through all AI response blocks and apply formatting
+            for block_num in self.ai_response_blocks:
+                ai_info = self.ai_response_blocks[block_num]
+                start_block = ai_info['start']
+                end_block = ai_info['end']
+                
+                # Format all blocks in the AI response range except markers
+                for i in range(start_block, end_block + 1):
+                    block = self.document().findBlockByNumber(i)
+                    text = block.text().strip()
+                    
+                    # Skip marker blocks
+                    if text in ["§§§AI_RESPONSE_START§§§", "§§§AI_RESPONSE_END§§§"]:
+                        continue
+                    
+                    # Apply format to the entire block content
+                    cursor = QTextCursor(block)
+                    cursor.movePosition(QTextCursor.StartOfBlock)
+                    cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+                    cursor.mergeCharFormat(ai_format)
+        finally:
+            self.is_formatting = False
+    
+    def refresh_formatting(self) -> None:
+        """Refresh AI response formatting - call this when content changes significantly."""
+        self.find_ai_response_blocks()
+        self.find_chat_message_blocks()
+        self.update_block_visibility()
+        self.apply_ai_response_formatting()
+    
+    def showEvent(self, event) -> None:
+        """Apply formatting when the widget is first shown."""
+        super().showEvent(event)
+        # Apply formatting when the widget becomes visible
+        self.refresh_formatting()
     
     def is_cursor_in_assistant_block(self, cursor_position: int = None) -> bool:
         """Check if the cursor is currently in an assistant message block."""
@@ -441,9 +493,13 @@ class ClickableTextEdit(QTextEdit):
         
     def on_internal_text_changed(self) -> None:
         """Handle internal text changes to update AI responses and chat messages."""
+        if self.is_formatting:
+            return
+        
+        # Only update block detection, don't apply formatting on every change
         self.find_ai_response_blocks()
         self.find_chat_message_blocks()
-        self.viewport().update()
+        self.update_block_visibility()
         
     def find_ai_response_blocks(self) -> None:
         """Find all AI response blocks marked with special markers."""
