@@ -45,7 +45,7 @@ class ClickableTextEdit(QTextEdit):
         self.viewport().setCursor(Qt.IBeamCursor)
         self.anchor_at_cursor = None
         
-        # Connect text change signal for callout updates
+        # Connect text change signal for updates
         self.textChanged.connect(self.on_internal_text_changed)
         
         # Undo/Redo stack configuration
@@ -55,19 +55,15 @@ class ClickableTextEdit(QTextEdit):
         self.last_saved_state = ""
         self.is_undoing = False
         
-        # Callout folding state
-        self.folded_callouts = set()  # Set of block numbers that are folded
-        self.callout_blocks = {}  # Map block number to callout info
-        
-        # AI response blocks
+        # AI response blocks (legacy)
         self.ai_response_blocks = {}  # Map block number to AI response info
         
-        # Track manually toggled callouts to prevent auto-folding override
-        self.manually_toggled_callouts = set()
+        # Chat message blocks for new chat UI
+        self.chat_message_blocks = {}  # Map block number to {'role': 'user'|'assistant', 'start': int, 'end': int}
         
     def mousePressEvent(self, event: QEvent) -> None:
         """
-        Handle mouse press events to detect clicks on links and callout folding.
+        Handle mouse press events to detect clicks on links.
         
         In read-only mode, maps display positions back to original text positions
         to handle links with hidden brackets. In edit mode, directly checks for
@@ -76,27 +72,10 @@ class ClickableTextEdit(QTextEdit):
         Args:
             event: The mouse press event
         """
+        
         if event.button() == Qt.LeftButton:
             cursor = self.cursorForPosition(event.pos())
             position = cursor.position()
-            
-            # Check if clicking on a callout block
-            block = cursor.block()
-            block_num = block.blockNumber()
-            
-            # Check if this is a callout and if we're clicking near the left margin
-            if self.is_callout_block(block_num):
-                callout_info = self.callout_blocks[block_num]
-                start_block = callout_info['start']
-                
-                # Only allow clicking on the first line of the callout
-                if block_num == start_block:
-                    # Get click position relative to block
-                    click_x = event.pos().x()
-                    if click_x < 30:  # Click in left margin area
-                        self.toggle_callout_fold(block_num)
-                        event.accept()
-                        return
             
             # Handle read-only mode where brackets are hidden
             if self.parent_window and self.parent_window.is_read_only:
@@ -148,9 +127,9 @@ class ClickableTextEdit(QTextEdit):
     
     def mouseMoveEvent(self, event: QEvent) -> None:
         """
-        Handle mouse move events to change cursor when hovering over links and callout fold indicators.
+        Handle mouse move events to change cursor when hovering over links.
         
-        Changes the cursor to a pointing hand when hovering over clickable links or fold indicators,
+        Changes the cursor to a pointing hand when hovering over clickable links,
         and back to an I-beam cursor otherwise.
         
         Args:
@@ -158,17 +137,6 @@ class ClickableTextEdit(QTextEdit):
         """
         cursor = self.cursorForPosition(event.pos())
         position = cursor.position()
-        
-        # Check if hovering over callout fold indicator
-        if event.pos().x() < 30:  # In left margin area
-            block = cursor.block()
-            block_num = block.blockNumber()
-            if self.is_callout_block(block_num):
-                callout_info = self.callout_blocks[block_num]
-                if block_num == callout_info['start']:  # Only on first line of callout
-                    self.viewport().setCursor(Qt.PointingHandCursor)
-                    super().mouseMoveEvent(event)
-                    return
         
         hovering_on_link = False
         
@@ -302,15 +270,43 @@ class ClickableTextEdit(QTextEdit):
     
     def keyPressEvent(self, event: QEvent) -> None:
         """
-        Handle keyboard shortcuts for undo/redo operations.
+        Handle keyboard shortcuts for undo/redo operations and prevent editing in assistant blocks.
         
         Supports:
         - Ctrl+Z for undo
         - Ctrl+Y or Ctrl+Shift+Z for redo
+        - Prevents editing in assistant blocks
         
         Args:
             event: The key press event
         """
+        # Check if cursor is in an assistant block and prevent editing
+        if self.is_cursor_in_assistant_block():
+            # Allow navigation keys
+            navigation_keys = [
+                Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right,
+                Qt.Key_Home, Qt.Key_End, Qt.Key_PageUp, Qt.Key_PageDown
+            ]
+            
+            # Allow copy operations
+            if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_C:
+                super().keyPressEvent(event)
+                return
+            
+            # Allow selection with Shift
+            if event.modifiers() & Qt.ShiftModifier and event.key() in navigation_keys:
+                super().keyPressEvent(event)
+                return
+            
+            # Allow navigation without modifiers
+            if event.key() in navigation_keys and not event.modifiers():
+                super().keyPressEvent(event)
+                return
+            
+            # Block all other editing operations in assistant blocks
+            event.accept()
+            return
+        
         # Check for Ctrl+Z (undo)
         if event.modifiers() == Qt.ControlModifier and event.key() == Qt.Key_Z:
             # Only allow undo in edit mode
@@ -344,9 +340,6 @@ class ClickableTextEdit(QTextEdit):
         self.undo_stack.clear()
         self.redo_stack.clear()
         self.last_saved_state = self.toPlainText()
-        # Also clear folded callouts and manual toggle tracking when loading new file
-        self.folded_callouts.clear()
-        self.manually_toggled_callouts.clear()
     
     def setPlainText(self, text: str) -> None:
         """
@@ -356,250 +349,100 @@ class ClickableTextEdit(QTextEdit):
             text: The text to set in the editor
         """
         super().setPlainText(text)
-        # Update callout blocks and AI responses
-        self.find_callout_blocks()
+        # Update AI responses and chat messages
         self.find_ai_response_blocks()
-        self.update_block_visibility()
+        self.find_chat_message_blocks()
         # Don't save undo state if we're in the middle of undoing/redoing
         if not self.is_undoing and self.parent_window and hasattr(self.parent_window, 'is_read_only') and not self.parent_window.is_read_only:
             # Save initial state when setting new text
             if not self.undo_stack or (self.undo_stack and self.undo_stack[-1]['text'] != text):
                 self.save_undo_state()
-                
-    def find_callout_blocks(self) -> None:
-        """Find all callout blocks in the document."""
-        self.callout_blocks.clear()
-        document = self.document()
-        
-        current_callout_start = None
-        is_thinking_callout = False
-        
-        for block_num in range(document.blockCount()):
-            block = document.findBlockByNumber(block_num)
-            text = block.text()
-            
-            # Check if line starts with > (callout)
-            if text.strip().startswith('>'):
-                if current_callout_start is None:
-                    current_callout_start = block_num
-                    # Check if this is a "thinking..." callout
-                    if text.strip().lower() == '> thinking...':
-                        is_thinking_callout = True
-            else:
-                # Not a callout line - end current callout if exists
-                if current_callout_start is not None:
-                    # Store callout block info
-                    for i in range(current_callout_start, block_num):
-                        self.callout_blocks[i] = {
-                            'start': current_callout_start,
-                            'end': block_num - 1
-                        }
-                    
-                    # Auto-fold thinking callouts (only if not manually toggled)
-                    if (is_thinking_callout and 
-                        current_callout_start not in self.manually_toggled_callouts and
-                        current_callout_start not in self.folded_callouts):
-                        self.folded_callouts.add(current_callout_start)
-                    
-                    current_callout_start = None
-                    is_thinking_callout = False
-        
-        # Handle callout that extends to end of document
-        if current_callout_start is not None:
-            for i in range(current_callout_start, document.blockCount()):
-                self.callout_blocks[i] = {
-                    'start': current_callout_start,
-                    'end': document.blockCount() - 1
-                }
-            
-            # Auto-fold thinking callouts (only if not manually toggled)
-            if (is_thinking_callout and 
-                current_callout_start not in self.manually_toggled_callouts and
-                current_callout_start not in self.folded_callouts):
-                self.folded_callouts.add(current_callout_start)
-                
-    def is_callout_block(self, block_num: int) -> bool:
-        """Check if a block is part of a callout."""
-        return block_num in self.callout_blocks
-        
-    def toggle_callout_fold(self, block_num: int) -> None:
-        """Toggle the fold state of a callout block."""
-        if block_num not in self.callout_blocks:
-            return
-            
-        callout_info = self.callout_blocks[block_num]
-        start_block = callout_info['start']
-        
-        # Mark this callout as manually toggled
-        self.manually_toggled_callouts.add(start_block)
-        
-        if start_block in self.folded_callouts:
-            self.folded_callouts.remove(start_block)
-        else:
-            self.folded_callouts.add(start_block)
-            
-        # Update visibility for all blocks
-        self.update_block_visibility()
-        
-        # Trigger repaint and re-layout
-        self.viewport().update()
-        
-        # Force document re-layout
-        document = self.document()
-        document.markContentsDirty(0, document.characterCount())
         
     def paintEvent(self, event: QEvent) -> None:
-        """Override paint event to draw callout backgrounds and hide AI markers."""
-        # Only update visibility if blocks have changed, not on every paint
-        # This prevents interfering with manual fold/unfold actions
-        
-        # First, let the base class draw the text
+        """Simplified paint event with no special formatting."""
+        # Just let the base class draw the text normally
         super().paintEvent(event)
         
-        # Update callout blocks and AI responses
-        self.find_callout_blocks()
+        # Update chat message detection for uneditable blocks
         self.find_ai_response_blocks()
-        
-        # Draw callout and AI response backgrounds
-        painter = QPainter(self.viewport())
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        # Light yellow color for callouts
-        callout_color = QColor(255, 250, 205, 80)  # Light yellow with transparency
-        # Light green color for AI responses
-        ai_response_color = QColor(205, 255, 205, 80)  # Light green with transparency
+        self.find_chat_message_blocks()
+    
+    
+    def apply_chat_message_formatting(self) -> None:
+        """Apply minimal formatting to chat messages (simplified)."""
+        # No special formatting needed - everything uses default text appearance
+        pass
+    
+    def is_cursor_in_assistant_block(self, cursor_position: int = None) -> bool:
+        """Check if the cursor is currently in an assistant message block."""
+        if cursor_position is None:
+            cursor_position = self.textCursor().position()
         
         document = self.document()
+        cursor = QTextCursor(document)
+        cursor.setPosition(cursor_position)
+        block_number = cursor.blockNumber()
         
-        # Track which callouts we've already drawn
-        drawn_callouts = set()
+        # Check if this block is part of an assistant message
+        if block_number in self.chat_message_blocks:
+            message_info = self.chat_message_blocks[block_number]
+            return message_info['role'] == 'assistant'
         
-        for block_num in range(document.blockCount()):
-            if block_num in self.callout_blocks:
-                callout_info = self.callout_blocks[block_num]
-                start_block = callout_info['start']
-                end_block = callout_info['end']
+        # Also check legacy AI response blocks
+        if block_number in self.ai_response_blocks:
+            return True
+            
+        return False
+    
+    def get_assistant_block_range(self, cursor_position: int = None) -> tuple:
+        """Get the start and end positions of the assistant block containing the cursor."""
+        if cursor_position is None:
+            cursor_position = self.textCursor().position()
+        
+        document = self.document()
+        cursor = QTextCursor(document)
+        cursor.setPosition(cursor_position)
+        block_number = cursor.blockNumber()
+        
+        # Check chat message blocks first
+        if block_number in self.chat_message_blocks:
+            message_info = self.chat_message_blocks[block_number]
+            if message_info['role'] == 'assistant':
+                start_block = message_info['start']
+                end_block = message_info['end']
                 
-                # Only draw each callout once (at its start block)
-                if block_num != start_block:
-                    continue
-                    
-                # Skip if we've already drawn this callout
-                if start_block in drawn_callouts:
-                    continue
-                drawn_callouts.add(start_block)
-                
-                # Get the rectangle for the entire callout
+                # Get actual text positions
                 start_block_obj = document.findBlockByNumber(start_block)
+                end_block_obj = document.findBlockByNumber(end_block)
                 
-                # Determine the actual end block based on fold state
-                if start_block in self.folded_callouts:
-                    # If folded, only show the first line
-                    actual_end_block = start_block
-                else:
-                    # If not folded, show all lines
-                    actual_end_block = end_block
-                
-                end_block_obj = document.findBlockByNumber(actual_end_block)
-                
-                # Get block layout coordinates
                 start_cursor = QTextCursor(start_block_obj)
                 end_cursor = QTextCursor(end_block_obj)
                 end_cursor.movePosition(QTextCursor.EndOfBlock)
                 
-                start_rect = self.cursorRect(start_cursor)
-                end_rect = self.cursorRect(end_cursor)
-                
-                # Create rectangle covering the callout
-                callout_rect = QRectF(
-                    start_rect.left() - 5,
-                    start_rect.top(),
-                    self.viewport().width() - 10,
-                    end_rect.bottom() - start_rect.top()
-                )
-                
-                # Draw rounded rectangle background
-                painter.setBrush(QBrush(callout_color))
-                painter.setPen(Qt.NoPen)
-                painter.drawRoundedRect(callout_rect, 5, 5)
-                
-                # Draw fold indicator on the first line
-                if block_num == start_block:
-                    # Draw a small triangle or arrow
-                    indicator_rect = QRectF(5, start_rect.top() + 5, 10, 10)
-                    painter.setBrush(QBrush(QColor(100, 100, 100)))
-                    
-                    if start_block in self.folded_callouts:
-                        # Draw right-pointing triangle for folded
-                        triangle = QPolygonF([
-                            QPointF(indicator_rect.left(), indicator_rect.top()),
-                            QPointF(indicator_rect.left(), indicator_rect.bottom()),
-                            QPointF(indicator_rect.right(), indicator_rect.center().y())
-                        ])
-                    else:
-                        # Draw down-pointing triangle for unfolded
-                        triangle = QPolygonF([
-                            QPointF(indicator_rect.left(), indicator_rect.top()),
-                            QPointF(indicator_rect.right(), indicator_rect.top()),
-                            QPointF(indicator_rect.center().x(), indicator_rect.bottom())
-                        ])
-                    painter.drawPolygon(triangle)
+                return (start_cursor.position(), end_cursor.position())
         
-        # Draw AI response backgrounds
-        drawn_ai_responses = set()
+        # Check legacy AI response blocks
+        if block_number in self.ai_response_blocks:
+            ai_info = self.ai_response_blocks[block_number]
+            start_block = ai_info['start']
+            end_block = ai_info['end']
+            
+            start_block_obj = document.findBlockByNumber(start_block)
+            end_block_obj = document.findBlockByNumber(end_block)
+            
+            start_cursor = QTextCursor(start_block_obj)
+            end_cursor = QTextCursor(end_block_obj)
+            end_cursor.movePosition(QTextCursor.EndOfBlock)
+            
+            return (start_cursor.position(), end_cursor.position())
         
-        for block_num in range(document.blockCount()):
-            if block_num in self.ai_response_blocks:
-                ai_info = self.ai_response_blocks[block_num]
-                start_block = ai_info['start']
-                end_block = ai_info['end']
-                
-                # Only draw each AI response once (at its start block)
-                if block_num != start_block:
-                    continue
-                    
-                # Skip if we've already drawn this AI response
-                if start_block in drawn_ai_responses:
-                    continue
-                drawn_ai_responses.add(start_block)
-                
-                # Get the actual visible content blocks (skip markers)
-                visible_start = start_block + 1  # Skip start marker
-                visible_end = end_block - 1  # Skip end marker
-                
-                # Only draw if there's visible content
-                if visible_start <= visible_end:
-                    start_block_obj = document.findBlockByNumber(visible_start)
-                    end_block_obj = document.findBlockByNumber(visible_end)
-                    
-                    # Get block layout coordinates
-                    start_cursor = QTextCursor(start_block_obj)
-                    end_cursor = QTextCursor(end_block_obj)
-                    end_cursor.movePosition(QTextCursor.EndOfBlock)
-                    
-                    start_rect = self.cursorRect(start_cursor)
-                    end_rect = self.cursorRect(end_cursor)
-                    
-                    # Create rectangle covering the AI response
-                    ai_rect = QRectF(
-                        start_rect.left() - 5,
-                        start_rect.top(),
-                        self.viewport().width() - 10,
-                        end_rect.bottom() - start_rect.top()
-                    )
-                    
-                    # Draw rounded rectangle background
-                    painter.setBrush(QBrush(ai_response_color))
-                    painter.setPen(Qt.NoPen)
-                    painter.drawRoundedRect(ai_rect, 5, 5)
-                
-        painter.end()
+        return (None, None)
+    
         
     def on_internal_text_changed(self) -> None:
-        """Handle internal text changes to update callout blocks and AI responses."""
-        self.find_callout_blocks()
+        """Handle internal text changes to update AI responses and chat messages."""
         self.find_ai_response_blocks()
-        self.update_block_visibility()
+        self.find_chat_message_blocks()
         self.viewport().update()
         
     def find_ai_response_blocks(self) -> None:
@@ -627,9 +470,51 @@ class ClickableTextEdit(QTextEdit):
                         }
                 in_ai_response = False
                 ai_response_start = None
+    
+    def find_chat_message_blocks(self) -> None:
+        """Find and classify chat message blocks for conversation UI."""
+        self.chat_message_blocks.clear()
+        document = self.document()
+        
+        current_role = 'user'  # Start with user
+        current_message_start = 0
+        
+        for block_num in range(document.blockCount()):
+            block = document.findBlockByNumber(block_num)
+            text = block.text().strip()
+            
+            # Check for AI response markers (transition to assistant)
+            if text == "§§§AI_RESPONSE_START§§§":
+                # End current user message if exists
+                if current_role == 'user' and block_num > current_message_start:
+                    self._mark_chat_message_range(current_message_start, block_num - 1, 'user')
+                
+                current_role = 'assistant'
+                current_message_start = block_num + 1  # Start after marker
+                
+            elif text == "§§§AI_RESPONSE_END§§§":
+                # End current assistant message
+                if current_role == 'assistant' and block_num > current_message_start:
+                    self._mark_chat_message_range(current_message_start, block_num - 1, 'assistant')
+                
+                current_role = 'user'
+                current_message_start = block_num + 1  # Start after marker
+        
+        # Handle final message that extends to end of document
+        if current_message_start < document.blockCount():
+            self._mark_chat_message_range(current_message_start, document.blockCount() - 1, current_role)
+    
+    def _mark_chat_message_range(self, start_block: int, end_block: int, role: str) -> None:
+        """Mark a range of blocks as belonging to a chat message."""
+        for i in range(start_block, end_block + 1):
+            self.chat_message_blocks[i] = {
+                'role': role,
+                'start': start_block,
+                'end': end_block
+            }
                 
     def update_block_visibility(self) -> None:
-        """Update the visibility of all blocks based on folding state and markers."""
+        """Update the visibility of all blocks based on markers."""
         document = self.document()
         
         for block_num in range(document.blockCount()):
@@ -640,16 +525,5 @@ class ClickableTextEdit(QTextEdit):
             if text in ["§§§AI_RESPONSE_START§§§", "§§§AI_RESPONSE_END§§§"]:
                 block.setVisible(False)
             else:
-                # Handle callout folding
-                if block_num in self.callout_blocks:
-                    callout_info = self.callout_blocks[block_num]
-                    start_block = callout_info['start']
-                    
-                    # Hide non-first lines of folded callouts
-                    if start_block in self.folded_callouts and block_num > start_block:
-                        block.setVisible(False)
-                    else:
-                        block.setVisible(True)
-                else:
-                    # Regular blocks are always visible
-                    block.setVisible(True)
+                # Regular blocks are always visible
+                block.setVisible(True)
