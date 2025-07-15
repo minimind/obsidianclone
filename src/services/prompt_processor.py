@@ -178,26 +178,44 @@ class PromptProcessor:
         """
         Format the Ollama response for insertion into the document.
         
+        Creates a foldable thinking section and a highlighted user section.
+        
         Args:
             response: Raw response from Ollama
             prompt_name: Name of the prompt that generated the response
             
         Returns:
-            Formatted response text
+            Formatted response text with special markers
         """
-        # Extract content between <TOUSER> tags if present
+        # Extract content between <TOUSER> tags and everything else
         touser_pattern = re.compile(r'<TOUSER>(.*?)</TOUSER>', re.DOTALL | re.IGNORECASE)
         touser_match = touser_pattern.search(response)
         
         if touser_match:
-            # Use content between TOUSER tags
-            formatted_response = touser_match.group(1).strip()
+            # Get content inside TOUSER tags
+            user_content = touser_match.group(1).strip()
+            # Get everything outside TOUSER tags (thinking content)
+            thinking_content = touser_pattern.sub('', response).strip()
         else:
-            # Use the full response
-            formatted_response = response.strip()
+            # If no TOUSER tags, treat entire response as user content
+            user_content = response.strip()
+            thinking_content = ""
         
-        # Add a header to identify this as an AI response
-        header = f"\n\n--- AI Response ({prompt_name}) ---\n"
-        footer = "\n--- End AI Response ---\n"
+        # Format the response with special markers for the editor
+        formatted_parts = []
         
-        return f"{header}{formatted_response}{footer}"
+        # Add thinking section as a foldable callout
+        if thinking_content:
+            formatted_parts.append("\n\n> thinking...")
+            # Add each line of thinking content with > prefix
+            for line in thinking_content.split('\n'):
+                if line.strip():  # Skip empty lines
+                    formatted_parts.append(f"> {line}")
+        
+        # Add user content in a special block for green background
+        if user_content:
+            formatted_parts.append("\n\n§§§AI_RESPONSE_START§§§")
+            formatted_parts.append(user_content)
+            formatted_parts.append("§§§AI_RESPONSE_END§§§")
+        
+        return '\n'.join(formatted_parts)
