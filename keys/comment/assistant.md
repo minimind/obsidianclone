@@ -1,1 +1,1 @@
-Remember to be positive! And tell the truth!
+Remember to be truthful and positive.
