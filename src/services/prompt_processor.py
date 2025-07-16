@@ -173,15 +173,15 @@ class PromptProcessor:
         Returns:
             Formatted response text with minimal markers
         """
-        # Extract content between <TOUSER> tags if they exist
-        touser_pattern = re.compile(r'<TOUSER>(.*?)</TOUSER>', re.DOTALL | re.IGNORECASE)
+        # Extract content between &&&Advice&&& tags if they exist
+        touser_pattern = re.compile(r'<AdviceNowABC>(.*?)</AdviceNowABC>', re.DOTALL | re.IGNORECASE)
         touser_match = touser_pattern.search(response)
         
         if touser_match:
-            # Use only content inside TOUSER tags
+            # Use only content inside <AdviceNowABC> tags
             content = touser_match.group(1).strip()
         else:
-            # Use entire response if no TOUSER tags
+            # Use entire response if no <AdviceNowABC> tags
             content = response.strip()
         
         # Simple formatting with just the response markers for uneditable detection
