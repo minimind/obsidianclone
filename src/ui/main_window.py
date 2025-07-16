@@ -685,8 +685,6 @@ class MainWindow(QMainWindow):
             # Insert responses into the text
             if results['results']:
                 self._insert_prompt_responses(current_text, results['results'])
-                QMessageBox.information(self, "Processing Complete", 
-                                      f"Processed {len(results['results'])} prompt(s) successfully.")
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error processing prompts: {str(e)}")
@@ -712,8 +710,9 @@ class MainWindow(QMainWindow):
             # Format the response
             formatted_response = self.prompt_processor.format_response_for_insertion(response, prompt_name)
             
-            # Insert after the @#promptname pattern
-            modified_text = (modified_text[:pattern_end] + 
+            # Replace the @#promptname pattern with the formatted response
+            pattern_start = result['pattern_start']
+            modified_text = (modified_text[:pattern_start] + 
                            formatted_response + 
                            modified_text[pattern_end:])
         
