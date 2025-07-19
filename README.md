@@ -20,6 +20,8 @@ A simple Obsidian-like note-taking application built with Python and PyQt5.
 
 ## Installation
 
+### Option 1: Run from Source
+
 1. Install dependencies:
 ```bash
 pip install -r requirements.txt
@@ -27,8 +29,42 @@ pip install -r requirements.txt
 
 2. Run the application:
 ```bash
-python obsidian_clone.py
+python main.py
 ```
+
+### Option 2: Windows Installer
+
+#### Pre-built Installer
+1. Download the latest `ObsidianClone-Setup-*.exe` from the releases page
+2. Run the installer and follow the prompts
+3. Launch ObsidianClone from the Start Menu or Desktop shortcut
+
+#### Build Your Own Windows Executable
+
+1. Install PyInstaller:
+```bash
+pip install pyinstaller
+```
+
+2. Build the executable:
+```bash
+python setup_windows.py
+# or use PyInstaller directly:
+pyinstaller obsidianclone.spec
+```
+
+3. The executable will be in the `dist` folder as `ObsidianClone.exe`
+
+#### Create Windows Installer (Optional)
+
+1. Install [Inno Setup](https://jrsoftware.org/isinfo.php)
+2. Open `installer_windows.iss` in Inno Setup
+3. Compile the script (Build → Compile)
+4. The installer will be created in the `dist` folder
+
+### Option 3: macOS App Bundle
+
+See the "Building macOS App (for Dock)" section below for macOS installation instructions.
 
 ## Usage
 
